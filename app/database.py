@@ -138,8 +138,92 @@ def initialize() -> None:
             CREATE TABLE IF NOT EXISTS agent_configurations (
                 team_id TEXT PRIMARY KEY REFERENCES teams(id),
                 system_prompt TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL,
                 updated_by TEXT NOT NULL REFERENCES users(id)
+            );
+            CREATE TABLE IF NOT EXISTS agent_documents (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                kind TEXT NOT NULL CHECK(kind IN ('markdown', 'skill')),
+                filename TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(team_id, kind, filename)
+            );
+            CREATE TABLE IF NOT EXISTS agent_prompt_templates (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(team_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS agent_function_tools (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                name TEXT NOT NULL,
+                label TEXT NOT NULL,
+                description TEXT NOT NULL,
+                endpoint_url TEXT NOT NULL,
+                method TEXT NOT NULL CHECK(method IN ('GET', 'POST')),
+                input_schema_json TEXT NOT NULL,
+                headers_json TEXT NOT NULL DEFAULT '{}',
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(team_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS agent_mcp_servers (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                label TEXT NOT NULL,
+                server_url TEXT NOT NULL,
+                allowed_tools_json TEXT NOT NULL,
+                approval_policy TEXT NOT NULL CHECK(approval_policy IN ('never', 'always')),
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                validation_status TEXT NOT NULL DEFAULT 'not_checked',
+                validation_checked_at TEXT,
+                validation_detail TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(team_id, label),
+                UNIQUE(team_id, server_url)
+            );
+            CREATE TABLE IF NOT EXISTS agent_turns (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                conversation_id TEXT NOT NULL REFERENCES conversations(id),
+                user_message_id TEXT NOT NULL REFERENCES messages(id),
+                assistant_message_id TEXT REFERENCES messages(id),
+                state TEXT NOT NULL CHECK(state IN ('completed', 'awaiting_approval', 'failed')),
+                configuration_revision INTEGER NOT NULL,
+                provider_state_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_tool_executions (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                turn_id TEXT NOT NULL REFERENCES agent_turns(id),
+                conversation_id TEXT NOT NULL REFERENCES conversations(id),
+                assistant_message_id TEXT REFERENCES messages(id),
+                config_revision INTEGER NOT NULL,
+                capability_type TEXT NOT NULL CHECK(capability_type IN ('http_function', 'mcp')),
+                capability_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                provider_call_id TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('requested', 'awaiting_approval', 'running', 'succeeded', 'failed', 'rejected')),
+                arguments_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT,
+                requested_at TEXT NOT NULL,
+                completed_at TEXT
             );
             CREATE TABLE IF NOT EXISTS agent_configuration_entries (
                 id TEXT PRIMARY KEY,
@@ -159,6 +243,12 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS artifacts_context ON artifacts(context_item_id);
             CREATE INDEX IF NOT EXISTS auth_sessions_active ON authentication_sessions(id, expires_at, revoked_at);
             CREATE INDEX IF NOT EXISTS agent_config_entries_team ON agent_configuration_entries(team_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS agent_documents_team ON agent_documents(team_id, created_at);
+            CREATE INDEX IF NOT EXISTS agent_templates_team ON agent_prompt_templates(team_id, created_at);
+            CREATE INDEX IF NOT EXISTS agent_function_tools_team ON agent_function_tools(team_id, created_at);
+            CREATE INDEX IF NOT EXISTS agent_mcp_servers_team ON agent_mcp_servers(team_id, created_at);
+            CREATE INDEX IF NOT EXISTS agent_turns_conversation ON agent_turns(conversation_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS agent_executions_conversation ON agent_tool_executions(conversation_id, requested_at DESC);
             """
         )
 
@@ -178,6 +268,10 @@ def initialize() -> None:
             db.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
         if "role" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'")
+
+        configuration_columns = {row[1] for row in db.execute("PRAGMA table_info(agent_configurations)")}
+        if "revision" not in configuration_columns:
+            db.execute("ALTER TABLE agent_configurations ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
 
         db.execute("INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)", (DEMO_TEAM_ID, DEMO_TEAM_NAME))
         db.execute("UPDATE teams SET name = ? WHERE id = ?", (DEMO_TEAM_NAME, DEMO_TEAM_ID))
