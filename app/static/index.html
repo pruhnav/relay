@@ -299,7 +299,7 @@
           <label for="tool-headers">Environment header map <span class="optional">optional · JSON only, values must be server-approved environment references</span><textarea id="tool-headers" rows="4" spellcheck="false" placeholder='{"X-API-Key":"RESEARCH_API_KEY"}'></textarea></label>
         </section>
         <section class="entry-fields" data-entry-fields="mcp" hidden>
-          <label for="mcp-label">Server label<input id="mcp-label" maxlength="120" placeholder="e.g. Research MCP" /></label>
+          <label for="mcp-label">Provider server label <span class="optional">letters, numbers, _ and - only; must start with a letter</span><input id="mcp-label" maxlength="120" pattern="[A-Za-z][A-Za-z0-9_-]*" placeholder="e.g. research_mcp" /></label>
           <label for="mcp-url">HTTPS server URL<input id="mcp-url" type="url" placeholder="https://mcp.example.com" /></label>
           <label for="mcp-tools">Allowed tools <span class="optional">one tool name per line or comma-separated</span><textarea id="mcp-tools" rows="5" placeholder="search_company\nget_report"></textarea></label>
           <label for="mcp-approval">Autonomy<select id="mcp-approval"><option value="always">Ask the chat owner before every call</option><option value="never">Run allowed calls automatically</option></select></label>

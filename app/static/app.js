@@ -83,6 +83,7 @@
   function parseJson(id, label, optional = false) { const value = $(id).value.trim(); if (!value && optional) return undefined; if (!value) throw Error(`${label} is required.`); try { const parsed = JSON.parse(value); if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw Error(); return parsed; } catch { throw Error(`${label} must be a JSON object.`); } }
   function required(value, label) { const trimmed = String(value || '').trim(); if (!trimmed) throw Error(`${label} is required.`); return trimmed; }
   function httpsUrl(value, label) { const url = required(value, label); try { if (new URL(url).protocol !== 'https:') throw Error(); return url; } catch { throw Error(`${label} must be an HTTPS URL.`); } }
+  function mcpServerLabel(value) { const label = required(value, 'Provider server label'); if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(label)) throw Error('Provider server label must start with a letter and contain only letters, numbers, underscores, or hyphens.'); return label; }
   function setEntryKind(kind) {
     document.querySelectorAll('[data-entry-fields]').forEach((section) => { section.hidden = section.dataset.entryFields !== kind && !(section.dataset.entryFields === 'document' && (kind === 'markdown' || kind === 'skill')); });
     const documentKind = kind === 'markdown' || kind === 'skill';
@@ -105,7 +106,7 @@
   function entryPayload(kind) {
     if (kind === 'prompt_template') return { name: required($('template-name').value, 'Template name'), content: required($('template-content').value, 'Prompt template'), enabled: $('entry-enabled').checked };
     if (kind === 'function_tool') return { name: required($('tool-name').value, 'Function name'), label: required($('tool-label').value, 'Display label'), description: required($('tool-description').value, 'Tool description'), endpoint_url: httpsUrl($('tool-url').value, 'HTTPS endpoint URL'), method: $('tool-method').value, input_schema: parseJson('tool-schema', 'Input JSON Schema'), headers: parseJson('tool-headers', 'Environment header map', true), enabled: $('entry-enabled').checked };
-    if (kind === 'mcp') { const allowed_tools = $('mcp-tools').value.split(/[\n,]/).map((name) => name.trim()).filter(Boolean); if (!allowed_tools.length) throw Error('Add at least one allowed MCP tool.'); return { label: required($('mcp-label').value, 'Server label'), server_url: httpsUrl($('mcp-url').value, 'HTTPS server URL'), allowed_tools, approval_policy: $('mcp-approval').value, enabled: $('entry-enabled').checked }; }
+    if (kind === 'mcp') { const allowed_tools = $('mcp-tools').value.split(/[\n,]/).map((name) => name.trim()).filter(Boolean); if (!allowed_tools.length) throw Error('Add at least one allowed MCP tool.'); return { label: mcpServerLabel($('mcp-label').value), server_url: httpsUrl($('mcp-url').value, 'HTTPS server URL'), allowed_tools, approval_policy: $('mcp-approval').value, enabled: $('entry-enabled').checked }; }
     return { title: required($('document-title').value, 'Title'), content: required($('document-content').value, 'Markdown content'), enabled: $('entry-enabled').checked };
   }
   async function saveEntry(event) {
@@ -174,12 +175,62 @@
     const artifacts = (response.artifacts || []).slice(0, 3).map((artifact) => `<button type="button" class="artifact-link" data-artifact="${esc(artifact.id)}">Open saved ${esc(artifact.kind)}: ${esc(artifact.title)}</button>`).join('');
     return `<section class="match-block"><div class="match-label">TEAM MEMORY CHECKED</div>${matches}${artifacts}</section>`;
   }
+  const EXECUTION_RESULT_LIMIT = 1200;
+  function boundedText(value, limit = EXECUTION_RESULT_LIMIT) {
+    const text = String(value ?? '').replace(/\s+$/g, '');
+    return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+  }
+  function parseExecutionResult(value) {
+    let parsed = value;
+    for (let attempt = 0; attempt < 3 && typeof parsed === 'string'; attempt += 1) {
+      const candidate = parsed.trim();
+      if (!['{', '[', '"'].includes(candidate[0])) break;
+      try { parsed = JSON.parse(candidate); } catch { break; }
+    }
+    return parsed;
+  }
+  function executionItemSummary(item) {
+    if (item === null || item === undefined) return 'No result';
+    if (typeof item !== 'object') return boundedText(item, 260);
+    const title = item.full_name || item.name || item.title || item.login || item.id || item.number || 'Result';
+    const context = item.description || item.message || item.state || item.status || item.type || '';
+    const link = item.html_url || item.web_url || item.url || item.link || '';
+    let safeLink = '';
+    try { const url = new URL(link); if (url.protocol === 'https:' || url.protocol === 'http:') safeLink = url.href; } catch { /* Untrusted links are shown nowhere. */ }
+    return boundedText(`${title}${context ? ` — ${context}` : ''}${safeLink ? `\n${safeLink}` : ''}`, 360);
+  }
+  function readableExecutionResult(raw) {
+    if (typeof raw === 'string' && raw.includes('[external result truncated]')) return 'This earlier tool response was truncated. Run the request again for a compact summary.';
+    const value = parseExecutionResult(raw);
+    if (value === null || value === undefined || value === '') return 'The capability completed without a response body.';
+    if (typeof value === 'string') return boundedText(value);
+    if (Array.isArray(value)) {
+      const items = value.slice(0, 5).map((item) => `• ${executionItemSummary(item)}`);
+      return boundedText(`Returned ${value.length} item${value.length === 1 ? '' : 's'}${items.length ? `:\n${items.join('\n')}` : '.'}`);
+    }
+    const githubItems = Array.isArray(value.items) ? value.items : null;
+    if (githubItems) {
+      const count = Number.isFinite(value.total_count) ? value.total_count : githubItems.length;
+      const items = githubItems.slice(0, 5).map((item) => `• ${executionItemSummary(item)}`);
+      return boundedText(`GitHub returned ${count} result${count === 1 ? '' : 's'}${items.length ? `:\n${items.join('\n')}` : '.'}`);
+    }
+    const nested = value.result ?? value.data ?? value.content ?? value.text;
+    if (nested !== undefined && Object.keys(value).length <= 3) return readableExecutionResult(nested);
+    const preferredKeys = ['message', 'summary', 'title', 'name', 'status', 'state', 'description', 'url', 'html_url', 'id'];
+    const keys = [...preferredKeys.filter((key) => value[key] !== undefined), ...Object.keys(value).filter((key) => !preferredKeys.includes(key))].slice(0, 6);
+    const lines = keys.map((key) => {
+      const item = value[key];
+      if (item && typeof item === 'object') return `${key}: ${Array.isArray(item) ? `${item.length} item${item.length === 1 ? '' : 's'}` : 'structured data'}`;
+      return `${key}: ${boundedText(item, 260)}`;
+    });
+    return boundedText(lines.length ? lines.join('\n') : 'The capability returned an empty object.');
+  }
   function renderExecutions() {
     const list = $('execution-list');
     list.innerHTML = state.executions.length ? state.executions.map((execution) => {
       const stateLabel = esc((execution.state || 'requested').replace('_', ' ')); const detail = execution.error || execution.result || (execution.state === 'awaiting_approval' ? 'Relay is waiting for your approval before this external call.' : 'Relay recorded this capability call.');
       const approval = execution.state === 'awaiting_approval' ? `<div class="dialog-actions"><button class="cancel-button" type="button" data-execution-approval="false" data-execution-id="${esc(execution.id)}">Reject</button><button class="submit-share" type="button" data-execution-approval="true" data-execution-id="${esc(execution.id)}">Approve and continue</button></div>` : '';
-      return `<article class="execution-card"><header><span>${esc(execution.capability_type === 'mcp' ? 'MCP' : 'HTTP tool')}</span><strong>${esc(execution.tool_name)}</strong><span class="execution-state ${esc(execution.state)}">${stateLabel}</span></header><p>${esc(typeof detail === 'string' ? detail : JSON.stringify(detail))}</p>${approval}</article>`;
+      return `<article class="execution-card"><header><span>${esc(execution.capability_type === 'mcp' ? 'MCP' : 'HTTP tool')}</span><strong>${esc(execution.tool_name)}</strong><span class="execution-state ${esc(execution.state)}">${stateLabel}</span></header><p>${esc(readableExecutionResult(detail))}</p>${approval}</article>`;
     }).join('') : '';
   }
   async function loadExecutions() {

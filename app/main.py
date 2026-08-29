@@ -55,6 +55,7 @@ MAX_TOOL_RESULT_CHARS = 12_000
 MAX_EXTERNAL_CALLS = 6
 EXTERNAL_TIMEOUT_SECONDS = 8.0
 SAFE_FUNCTION_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+SAFE_MCP_SERVER_LABEL = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 SAFE_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,80}$")
 SAFE_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 
@@ -676,6 +677,8 @@ def validate_function_tool(data: dict[str, Any]) -> dict[str, Any]:
 def validate_mcp_payload(data: dict[str, Any]) -> dict[str, Any]:
     data = dict(data)
     data["label"] = clean_text(data["label"], "label", 120)
+    if not SAFE_MCP_SERVER_LABEL.fullmatch(data["label"]):
+        raise HTTPException(422, "MCP server label must start with a letter and use only letters, numbers, underscores, or hyphens.")
     data["server_url"] = validate_public_https_url(data["server_url"])
     allowed = data.get("allowed_tools")
     if not isinstance(allowed, list) or not allowed or len(allowed) > 50:
@@ -688,7 +691,37 @@ def safe_external_value(value: Any) -> Any:
     serialized = json.dumps(value, ensure_ascii=False, default=str)
     # Do not let response blobs or obvious secret material make it into audit or subsequent prompts.
     serialized = re.sub(r'(?i)(authorization|api[_-]?key|token|password|secret)"\s*:\s*"[^"]*"', r'\1":"[redacted]"', serialized)
-    return json.loads(truncate_text(serialized, MAX_TOOL_RESULT_CHARS) or "null")
+    if len(serialized) > MAX_TOOL_RESULT_CHARS:
+        # Keep large results legible in the audit UI and safe to re-inject into a model. In
+        # particular, GitHub search responses can be very large; preserve only their useful
+        # read-only summary fields rather than a JSON string that renders as escaped noise.
+        if isinstance(value, dict) and isinstance(value.get("body"), dict):
+            body = value["body"]
+            if isinstance(body.get("items"), list) and ("total_count" in body or "incomplete_results" in body):
+                fields = ("title", "name", "full_name", "html_url", "state", "updated_at")
+                items = [
+                    {field: item[field] for field in fields if field in item and isinstance(item[field], (str, int, float, bool, type(None)))}
+                    for item in body["items"][:5] if isinstance(item, dict)
+                ]
+                return {
+                    "truncated": True, "status": value.get("status"), "total_count": body.get("total_count"),
+                    "incomplete_results": bool(body.get("incomplete_results", False)), "items": items,
+                }
+        def preview(item: Any, depth: int = 0) -> Any:
+            if depth >= 2:
+                return "[nested value omitted]"
+            if isinstance(item, dict):
+                safe: dict[str, Any] = {}
+                for key, nested in list(item.items())[:8]:
+                    safe[str(key)] = "[redacted]" if re.search(r"(?i)(authorization|api[_-]?key|token|password|secret)", str(key)) else preview(nested, depth + 1)
+                if len(item) > 8: safe["additional_fields"] = f"{len(item) - 8} omitted"
+                return safe
+            if isinstance(item, list):
+                return [preview(nested, depth + 1) for nested in item[:5]] + ([f"{len(item) - 5} additional items omitted"] if len(item) > 5 else [])
+            if isinstance(item, str): return truncate_text(item, 600)
+            return item if isinstance(item, (int, float, bool)) or item is None else str(item)
+        return {"truncated": True, "preview": preview(value)}
+    return json.loads(serialized)
 
 
 def validate_arguments(schema: dict[str, Any], arguments: Any) -> dict[str, Any]:
@@ -804,7 +837,9 @@ def provider_item_dict(item: Any) -> dict[str, Any]:
 
 
 def provider_tools(capabilities: dict[str, list[dict]]) -> list[dict]:
-    tools = [{"type": "function", "name": tool["name"], "description": tool["description"], "parameters": tool["input_schema"], "strict": True}
+    # Keep the provider descriptor non-strict: the admin schema validator still rejects unknown
+    # model arguments server-side, while non-strict mode permits genuinely optional properties.
+    tools = [{"type": "function", "name": tool["name"], "description": tool["description"], "parameters": tool["input_schema"]}
              for tool in capabilities["function_tools"] if tool["enabled"]]
     # The Responses MCP connector makes a real remote call.  Only server label, URL, allowlist,
     # and approval mode are passed; credentials and user/session data never leave this process.
@@ -869,6 +904,7 @@ def live_agent_response(conversation: list[dict[str, str]], matches: list[dict],
         for _ in range(MAX_EXTERNAL_CALLS):
             output = list(getattr(response, "output", []) or [])
             call_outputs: list[dict] = []
+            completed_mcp_call = False
             pending = False
             for item in output:
                 item_type = provider_item_value(item, "type")
@@ -903,7 +939,15 @@ def live_agent_response(conversation: list[dict[str, str]], matches: list[dict],
                         # The Responses MCP connector has completed this allowed call. Preserve the
                         # provider's bounded call output for audit, then let the provider finish its response.
                         all_executions[-1] = finish_execution(db, execution["id"], "succeeded", result=provider_item_value(item, "output", provider_item_value(item, "result", {"completed": True})))
+                        completed_mcp_call = True
             if not call_outputs:
+                if completed_mcp_call:
+                    # An MCP connector response can contain completed mcp_call records without a
+                    # final assistant message. Continue from that response so the model receives
+                    # the connector result and produces its user-facing answer.
+                    db.commit()
+                    response = client.responses.create(model=os.getenv("OPENAI_MODEL", "gpt-5").strip() or "gpt-5", previous_response_id=getattr(response, "id"), input=[], max_output_tokens=900)
+                    continue
                 content = getattr(response, "output_text", None)
                 return (content.strip() if isinstance(content, str) and content.strip() else None), all_executions, None
             db.commit()
@@ -1241,6 +1285,15 @@ def delete_prompt_template(template_id: str, identity: dict = Depends(current_id
 
 def mcp_discover(server_url: str, allowed_tools: list[str]) -> tuple[str, str | None]:
     """Perform bounded Streamable HTTP MCP discovery; no redirects or credentials are accepted."""
+    def response_payload(response: httpx.Response) -> dict[str, Any]:
+        """MCP Streamable HTTP servers may return JSON directly or a single SSE message."""
+        content_type = response.headers.get("content-type", "").lower()
+        if "text/event-stream" not in content_type:
+            return response.json()
+        for line in response.text.splitlines():
+            if line.startswith("data:"):
+                return json.loads(line.removeprefix("data:").strip())
+        raise ValueError("MCP SSE response did not contain a JSON message.")
     try:
         with httpx.Client(timeout=EXTERNAL_TIMEOUT_SECONDS, follow_redirects=False) as client:
             initialize_response = client.post(server_url, json={"jsonrpc": "2.0", "id": "relay-init", "method": "initialize", "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "relay", "version": "1"}}}, headers={"Accept": "application/json, text/event-stream", "Content-Type": "application/json"})
@@ -1248,9 +1301,10 @@ def mcp_discover(server_url: str, allowed_tools: list[str]) -> tuple[str, str | 
             session_id = initialize_response.headers.get("mcp-session-id")
             headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
             if session_id: headers["Mcp-Session-Id"] = session_id
+            headers["MCP-Protocol-Version"] = "2025-03-26"
             discovery = client.post(server_url, json={"jsonrpc": "2.0", "id": "relay-tools", "method": "tools/list", "params": {}}, headers=headers)
             if discovery.status_code >= 400: return "invalid", f"MCP server returned HTTP {discovery.status_code} during tool discovery."
-            payload = discovery.json()
+            payload = response_payload(discovery)
             tool_names = {item.get("name") for item in payload.get("result", {}).get("tools", []) if isinstance(item, dict)}
             missing = [name for name in allowed_tools if name not in tool_names]
             if missing: return "invalid", "Configured allowed tools were not advertised by the MCP server."
