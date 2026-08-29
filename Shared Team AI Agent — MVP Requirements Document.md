@@ -8,11 +8,11 @@ The goal is to reduce duplicated work and fragmented knowledge across teammates.
 
 For example:
 
-- Person A asks the agent to build authentication.
-- Person A completes the feature.
-- The system records that authentication has been completed, who worked on it, what changed, and where the implementation lives.
-- Later, Person B asks about authentication from a separate chat.
-- The agent knows Person A already completed the work and tells Person B instead of starting from scratch.
+- John asks the agent about authentication.
+- John's work is shared as chat records in team context.
+- The system preserves who contributed the information and when.
+- Later, Mary asks about authentication from a separate chat.
+- The agent retrieves John's shared context records and tells Mary what is already done before recommending duplicate work.
 
 The key idea is:
 
@@ -25,9 +25,9 @@ The key idea is:
 Each teammate should have their own chat:
 
 ```text
-Person A → Chat A ─┐
-Person B → Chat B ─┼→ Shared Team Agent
-Person C → Chat C ─┘
+John → Chat A ─┐
+Mary → Chat B ─┼→ Shared Team Agent
+Bob  → Chat C ─┘
                          │
                          ▼
                   Shared Team State
@@ -35,7 +35,9 @@ Person C → Chat C ─┘
 
 Users should NOT need to see everyone else's complete conversations.
 
-Instead, useful information from each user's work should be represented in structured shared team state.
+Instead, useful information from each user's work should be represented as **shared context records** — chat excerpts and artifacts that preserve original content and provenance.
+
+See `SHARED_CONTEXT_SCHEMA.md` and the canonical fixture at `app/data/data.json`.
 
 ---
 
@@ -53,62 +55,58 @@ The initial application should demonstrate:
 4. The agent can detect when a user is about to duplicate existing work.
 5. The agent can tell users who previously worked on something.
 6. Shared information includes provenance: who said/did something and when.
-7. The system distinguishes between confirmed team information and individual opinions.
+7. The agent infers facts, opinions, proposals, decisions, and work status from shared context at retrieval time rather than relying on stored status fields.
 
 ---
 
 # 4. Core Demo Scenario
 
-The following flow should work end-to-end.
+The seeded fixture in `app/data/data.json` defines the canonical demo narrative for **John, Mary, and Bob**.
 
-### Step 1 — Person A starts work
+### Step 1 — John completes authentication
 
-Person A asks:
-
-> Build Google authentication for the backend.
-
-The coding agent performs the work.
-
-The system should eventually record something similar to:
+Shared context includes:
 
 ```text
-Feature: Google Authentication
-Owner: Person A
-Status: Complete
-Description: Google OAuth backend authentication implemented
-Relevant Files:
-- auth.py
-- routes.py
-
-Endpoint:
-/auth/google
-
-Source:
-Commit abc123
-
-Updated:
-12:42 PM
+C001 (chat, John): Google OAuth login flow and callback are working locally.
+C016 (chat, John): Authentication implementation is complete and ready for integration.
 ```
 
----
+### Step 2 — Mary asks about overlapping work
 
-### Step 2 — Person B opens a separate chat
+Mary's chat record (C002) says she is still working on callback handling, while John's records say authentication is complete.
 
-Person B asks:
+When another teammate asks about login or authentication, the agent should retrieve the relevant records and explain:
 
-> I need to implement login. Where should I start?
+- John has completed the authentication implementation.
+- Mary may still be working on callback handling.
+- The teammate should coordinate before duplicating work.
 
-Instead of treating this as a new task, the agent should respond approximately:
+### Step 3 — Expense API handoff
 
-> Person A already implemented the backend Google authentication flow.
->
-> The `/auth/google` endpoint exists and the main implementation is in `auth.py` and `routes.py`.
->
-> You can continue by implementing the frontend integration.
+Mary's artifact records document and hand off the Expense API:
 
-The exact response format is not important.
+```text
+C003 (chat): Expense API supports GET, POST, DELETE.
+C004 (artifact, documentation): API endpoint documentation.
+C015 (artifact, handoff): API is ready for dashboard integration.
+```
 
-The important behavior is that the agent retrieves existing team context before recommending duplicate work.
+Bob's chat (C009) says he is waiting on the Expense API before starting the dashboard.
+
+### Step 4 — Database conflict
+
+John and Mary disagree about the database:
+
+```text
+C006 (chat, John): PostgreSQL.
+C007 (chat, Mary): MongoDB.
+C008 (artifact, conflict): Unresolved disagreement; source_record_ids = [C006, C007].
+```
+
+The agent must surface the conflict rather than silently choosing one side.
+
+The exact response format is not important. The important behavior is that the agent retrieves shared context records before recommending duplicate work or presenting one conflicting claim as definitive.
 
 ---
 
@@ -116,51 +114,42 @@ The important behavior is that the agent retrieves existing team context before 
 
 Do NOT implement shared context as simply one giant conversation transcript.
 
-Create structured team state.
-
-At minimum support these information types:
+Use one generic **`SharedContextRecord`** model with two content types:
 
 ```text
-Features / Work
-Decisions
-Tasks
-Facts
-Proposals
-Opinions
+chat      — a chat message or excerpt shared with the team
+artifact  — documentation, handoff notes, or conflict summaries
 ```
 
-Each record should contain metadata such as:
+Semantic concepts such as tasks, decisions, blockers, facts, opinions, and work status are **inferred by the agent at retrieval time** from record content. They are not stored as separate database entities or status fields.
+
+Each record should contain:
 
 ```text
 id
-team_id
 type
-title
-description
-author/user
-timestamp
-status
-source
-related files
-related commit
+content
+source_user_id
+artifact_type (optional; e.g. documentation, handoff, conflict)
+source_record_ids (optional provenance links)
+created_at
 ```
 
-Example:
+Example from the seed fixture:
 
 ```json
 {
-  "type": "feature",
-  "title": "Google Authentication",
-  "description": "Backend Google OAuth flow implemented.",
-  "author": "Person A",
-  "status": "complete",
-  "files": [
-    "auth.py",
-    "routes.py"
-  ],
-  "source": "commit abc123"
+  "id": "C008",
+  "type": "artifact",
+  "source_user_id": null,
+  "content": "Conflict detected: John proposed PostgreSQL while Mary proceeded with MongoDB. The database decision is unresolved.",
+  "artifact_type": "conflict",
+  "source_record_ids": ["C006", "C007"],
+  "created_at": "2026-08-29T11:15:00"
 }
 ```
+
+Canonical seed data: `app/data/data.json`. Runtime storage: SQLite (`team_memory.db`).
 
 ---
 
@@ -168,39 +157,31 @@ Example:
 
 The system must NOT treat everything a user says as equally authoritative.
 
-Distinguish between:
+The agent should distinguish between facts, opinions, proposals, decisions, and work-in-progress **by reading the content of shared context records**, not by relying on stored type or status fields.
+
+Examples that may appear inside `content`:
 
 ### Fact
 
-Example:
-
-> The backend currently uses FastAPI.
+> The Expense API supports GET, POST, and DELETE.
 
 ### Opinion
 
-Example:
+> I think we should use PostgreSQL.
 
-> I think MongoDB would be better.
+### Proposal / conflicting claim
 
-### Proposal
+> I thought we had decided to use MongoDB.
 
-Example:
+### Work in progress
 
-> We should move authentication to Auth0.
+> I'm currently working on the authentication flow.
 
-### Decision
+### Blocker
 
-Example:
+> The balance calculation is currently blocked because I'm not sure whether pending expenses should be included.
 
-> We decided to use PostgreSQL.
-
-### Work Status
-
-Example:
-
-> Person A is currently implementing authentication.
-
-These should remain separate concepts.
+These remain separate **semantic** concepts. The database stores only `chat` and `artifact` record types.
 
 ---
 
@@ -208,42 +189,28 @@ These should remain separate concepts.
 
 The agent should NOT silently choose one person's opinion over another.
 
-Example:
+Example from the seed data:
 
-Person A says:
+John (C006):
 
-> We should use MongoDB.
+> I think we should use PostgreSQL for the database because the relational structure fits the project.
 
-Person B says:
+Mary (C007):
 
-> We should use PostgreSQL.
+> I thought we had decided to use MongoDB. I already started setting up the MongoDB connection.
 
-The system should represent these as competing proposals unless a decision has been explicitly recorded.
+The system should represent this disagreement as a **conflict artifact** (C008) that references both source records via `source_record_ids`.
 
 The agent should respond approximately:
 
-> There are currently conflicting database proposals.
+> There is an unresolved database disagreement.
 >
-> Person A proposed MongoDB.
-> Person B proposed PostgreSQL.
+> John proposed PostgreSQL.
+> Mary proceeded with MongoDB.
 >
 > No confirmed team decision has been recorded yet.
 
-Once someone records:
-
-> We decided to use PostgreSQL.
-
-the shared state should contain:
-
-```text
-Database: PostgreSQL
-Status: Confirmed Decision
-Previous MongoDB proposal: Superseded
-```
-
-Do NOT build a complicated organizational hierarchy system for the MVP.
-
-Simple provenance + information types are sufficient.
+Do NOT build a complicated organizational hierarchy system for the MVP. Conflict artifacts plus provenance are sufficient.
 
 ---
 
@@ -277,41 +244,21 @@ Avoid automatically publishing every conversation.
 
 # 9. Work Lifecycle
 
-Shared work should support a simple status lifecycle:
+Work status is **not stored** in the database. The agent infers whether work is complete, in progress, blocked, or superseded from the content and timestamps of shared context records.
+
+Example chat records:
 
 ```text
-Draft
-↓
-In Progress
-↓
-Complete
-↓
-Superseded
+C002 (Mary): I'm currently working on the authentication flow...
+C016 (John): The authentication implementation is complete and ready for integration.
+C005 (Mary): The balance calculation is currently blocked...
 ```
 
-At minimum implement:
+When Bob asks to implement authentication, the agent should retrieve C001, C002, and C016 and explain that John has completed authentication while Mary may still be working on callback handling.
 
-```text
-in_progress
-complete
-superseded
-```
+When someone asks about the balance calculation, the agent should surface C005, C013, and C014 and explain the blocker.
 
-Example:
-
-```text
-Authentication
-Owner: Person A
-Status: In Progress
-```
-
-Person B asking to implement authentication should receive:
-
-> Person A is already working on authentication.
-
-After completion:
-
-> Person A completed authentication.
+There is no `in_progress` / `complete` / `superseded` column. Those are retrieval-time interpretations.
 
 ---
 
@@ -326,23 +273,20 @@ Use event-driven updates.
 Useful events include:
 
 ```text
-User explicitly shares information
-Agent completes a task
-Feature marked complete
-Commit created
-Decision confirmed
+User explicitly shares a chat or artifact record
+New shared context record created
 ```
 
 Target behavior:
 
 ```text
-Person A completes work
+Mary shares Expense API handoff artifact (C015)
         ↓
-Shared state updated
+Shared context updated in SQLite
         ↓
-Person B asks related question
+Bob asks about dashboard integration
         ↓
-Agent retrieves new state
+Agent retrieves C015 and related records
 ```
 
 Expected latency should feel effectively immediate to the user.
@@ -437,7 +381,10 @@ OR
 TypeScript + Node
 
 Database:
-PostgreSQL
+SQLite (team_memory.db)
+
+Shared context seed:
+app/data/data.json
 
 Agent:
 OpenAI / Codex-compatible agent tooling
@@ -473,7 +420,7 @@ Stores individual chat conversations.
 
 ### Team Context Service
 
-Stores structured shared knowledge.
+Stores shared context records (`SharedContextRecord`) in SQLite, seeded from `app/data/data.json`.
 
 ### Agent Service
 
@@ -532,41 +479,22 @@ content
 created_at
 ```
 
-## TeamContextItem
+## SharedContextRecord
 
 ```text
 id
 team_id
-author_id
-type
-title
+type                chat | artifact
 content
-status
+source_user_id
+artifact_type       optional: documentation, handoff, conflict, etc.
+source_record_ids   JSON array of related record ids
 created_at
-updated_at
-source_type
-source_reference
 ```
 
-Possible `type` values:
+Records are immutable after creation. Semantic meaning (task, decision, blocker, work status) is inferred by the agent from `content`.
 
-```text
-fact
-opinion
-proposal
-decision
-task
-feature
-```
-
-Possible `status` values:
-
-```text
-in_progress
-complete
-confirmed
-superseded
-```
+Seed fixture: `app/data/data.json` (16 demo records for John, Mary, and Bob).
 
 ---
 
@@ -586,19 +514,15 @@ User:
 
 > How should I implement authentication?
 
-Retrieve:
+Retrieve matching records such as:
 
 ```text
-Google Authentication
-Person A
-Complete
-
-/auth/google
-auth.py
-routes.py
+C001 — John: Google OAuth login flow and callback working locally
+C016 — John: Authentication implementation complete and ready for integration
+C002 — Mary: Still working on callback handling
 ```
 
-Include these records in the model's context.
+Include the matched records (and any `source_record_ids` provenance links) in the model's context.
 
 ---
 
@@ -617,7 +541,7 @@ Required screens:
 │                                         │
 │ User: How should I implement login?     │
 │                                         │
-│ AI: Person A already implemented...     │
+│ AI: John already shared authentication context... │
 │                                         │
 │                                         │
 ├─────────────────────────────────────────┤
@@ -631,22 +555,22 @@ Each user should have a separate conversation.
 
 ## Team Activity / Context
 
-Provide a basic page/sidebar showing shared state:
+Provide a basic sidebar showing shared context records:
 
 ```text
-TEAM ACTIVITY
+TEAM MEMORY
 
-✓ Google Authentication
-  Person A
-  Complete
+chat · John
+Google OAuth login flow and callback are working locally.
 
-→ Frontend Dashboard
-  Person B
-  In Progress
+artifact · handoff · Mary
+Expense API handoff notes: implementation is complete...
 
-✓ Database Decision
-  PostgreSQL
+artifact · conflict
+Conflict detected: John proposed PostgreSQL while Mary proceeded with MongoDB.
 ```
+
+Filters: All, Chat, Artifacts, Conflicts.
 
 This page is primarily useful for demonstrating the underlying system.
 
@@ -671,21 +595,14 @@ Example:
 
 ```text
 User:
-Build authentication.
+I need to implement login.
 
 Agent:
 
-I found that Person A is already implementing Google
-OAuth authentication.
+I found shared context from John saying Google OAuth authentication is complete
+and ready for integration (C016). Mary is still working on callback handling (C002).
 
-Status: In Progress
-Started: 30 minutes ago
-
-Would you like to:
-
-1. View their current work
-2. Work on a different part of authentication
-3. Continue independently
+You should coordinate with Mary before duplicating authentication work.
 ```
 
 ---
@@ -697,16 +614,15 @@ Every shared item must retain where it came from.
 Examples:
 
 ```text
-Person A
-Chat conversation
-Commit abc123
-Agent task #53
-Manual team decision
+John
+Chat record C001
+Conflict artifact C008 with source_record_ids [C006, C007]
+Manual share via "Share with Team"
 ```
 
 The agent should preferably be able to say:
 
-> Person A completed this.
+> John shared that authentication is complete.
 
 rather than:
 
@@ -744,13 +660,13 @@ Focus on proving the core collaborative-agent interaction.
 The demo should make this scenario obvious:
 
 ```text
-Person A performs work
+John performs work and shares context
        ↓
-Their agent records useful shared state
+Shared context records are stored in SQLite
        ↓
-Person B independently asks about the same problem
+Mary independently asks about the same problem
        ↓
-Person B's agent knows Person A's work exists
+Mary's agent retrieves John's shared records
        ↓
 Duplicate work is avoided
 ```
@@ -829,7 +745,7 @@ Multiple users + separate chat sessions.
 
 ### Phase 2
 
-Shared structured team context database.
+Shared context database (`SharedContextRecord`) seeded from `app/data/data.json`.
 
 ### Phase 3
 
@@ -857,36 +773,32 @@ Do not begin stretch goals until Phases 1–5 work reliably.
 
 # 25. Core Demo Script
 
-Use two browser sessions representing two teammates.
+Use three browser sessions representing John, Mary, and Bob (or at least two).
 
-### Person A
+### John
 
 Ask:
 
-> Build backend Google authentication.
+> What has the team completed on authentication?
 
-Agent performs or simulates implementation and records:
+Agent should cite C001 and C016 and note Mary's in-progress callback work (C002).
 
-```text
-Google Authentication
-Owner: Person A
-Status: Complete
-```
+### Mary
 
-### Person B
+Ask:
 
-In a separate account/chat, ask:
+> Is anyone already working on the dashboard?
 
-> I need to work on login. What should I build?
+Agent should cite C009 (Bob waiting on Expense API), C011 (Mary's dashboard requirements), and C012 (John has not started).
 
-Agent responds:
+### Bob
 
-> Person A already completed the backend authentication flow.
->
-> The `/auth/google` endpoint is available.
->
-> The remaining work is frontend integration.
+Ask:
 
-Then show the Team Activity page.
+> What database are we using?
+
+Agent should retrieve C008 and explain the unresolved PostgreSQL vs MongoDB conflict, citing C006 and C007.
+
+Then show the Team Memory sidebar with chat, artifact, and conflict filters.
 
 This is the minimum compelling demonstration of the product.

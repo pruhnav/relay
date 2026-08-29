@@ -76,3 +76,12 @@ For example, if John and Mary's messages disagree about the database, an LLM-gen
 
 ```text
 source_record_ids: ["C006", "C007"]
+```
+
+## Seed Data
+
+Canonical demo records live in `app/data/data.json`. On first startup, the application loads this file into the runtime SQLite database (`app/team_memory.db`) when the `shared_context_records` table is empty.
+
+- **Fixture format:** JSON array of `SharedContextRecord` objects.
+- **Runtime storage:** SQLite (`team_memory.db`) is the single source of truth at request time.
+- **Demo users:** John, Mary, and Bob. Seed `source_user_id` values use display names in JSON and are normalized to user ids (`john`, `mary`, `bob`) on insert.

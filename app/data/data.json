@@ -1,0 +1,146 @@
+[
+  {
+    "id": "C001",
+    "type": "chat",
+    "source_user_id": "John",
+    "content": "I finished setting up Google OAuth authentication. The login flow and callback are working locally.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-29T09:00:00"
+  },
+  {
+    "id": "C002",
+    "type": "chat",
+    "source_user_id": "Mary",
+    "content": "I'm currently working on the authentication flow. I've got the Google OAuth login working, but I haven't finished the callback handling yet.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T15:00:00"
+  },
+  {
+    "id": "C003",
+    "type": "chat",
+    "source_user_id": "Mary",
+    "content": "I finished the Expense API. It currently supports GET, POST, and DELETE for expenses.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-29T10:00:00"
+  },
+  {
+    "id": "C004",
+    "type": "artifact",
+    "source_user_id": "Mary",
+    "content": "Expense API documentation: GET /expenses retrieves expenses; POST /expenses creates an expense; DELETE /expenses/:id removes an expense. Responses are JSON.",
+    "artifact_type": "documentation",
+    "source_record_ids": [],
+    "created_at": "2026-08-29T10:15:00"
+  },
+  {
+    "id": "C005",
+    "type": "chat",
+    "source_user_id": "Mary",
+    "content": "The balance calculation is currently blocked because I'm not sure whether pending expenses should be included.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-29T11:00:00"
+  },
+  {
+    "id": "C006",
+    "type": "chat",
+    "source_user_id": "John",
+    "content": "I think we should use PostgreSQL for the database because the relational structure fits the project.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T13:00:00"
+  },
+  {
+    "id": "C007",
+    "type": "chat",
+    "source_user_id": "Mary",
+    "content": "I thought we had decided to use MongoDB. I already started setting up the MongoDB connection.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T14:00:00"
+  },
+  {
+    "id": "C008",
+    "type": "artifact",
+    "source_user_id": null,
+    "content": "Conflict detected: John proposed PostgreSQL while Mary proceeded with MongoDB. The database decision is unresolved.",
+    "artifact_type": "conflict",
+    "source_record_ids": ["C006", "C007"],
+    "created_at": "2026-08-29T11:15:00"
+  },
+  {
+    "id": "C009",
+    "type": "chat",
+    "source_user_id": "Bob",
+    "content": "I'm starting work on the dashboard once the Expense API is ready.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T16:00:00"
+  },
+  {
+    "id": "C010",
+    "type": "chat",
+    "source_user_id": "John",
+    "content": "Authentication is required before users can access their expenses.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T10:00:00"
+  },
+  {
+    "id": "C011",
+    "type": "chat",
+    "source_user_id": "Mary",
+    "content": "The dashboard should display total expenses and current balance.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T17:00:00"
+  },
+  {
+    "id": "C012",
+    "type": "chat",
+    "source_user_id": "John",
+    "content": "I haven't started the dashboard yet.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-28T18:00:00"
+  },
+  {
+    "id": "C013",
+    "type": "chat",
+    "source_user_id": "Bob",
+    "content": "I can take over the balance calculation if nobody else is working on it.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-29T12:00:00"
+  },
+  {
+    "id": "C014",
+    "type": "chat",
+    "source_user_id": "Mary",
+    "content": "The balance calculation should probably be income minus expenses, but I'm waiting for the team to confirm how pending expenses should work.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-29T11:30:00"
+  },
+  {
+    "id": "C015",
+    "type": "artifact",
+    "source_user_id": "Mary",
+    "content": "Expense API handoff notes: implementation is complete. The API is ready for consumers. The dashboard can begin integrating with it.",
+    "artifact_type": "handoff",
+    "source_record_ids": [],
+    "created_at": "2026-08-29T10:30:00"
+  },
+  {
+    "id": "C016",
+    "type": "chat",
+    "source_user_id": "John",
+    "content": "The authentication implementation is complete and ready for integration.",
+    "artifact_type": null,
+    "source_record_ids": [],
+    "created_at": "2026-08-29T09:30:00"
+  }
+]

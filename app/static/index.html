@@ -204,8 +204,9 @@
         <div class="hub-search"><span>⌕</span><input id="context-search" type="search" placeholder="Find past work" aria-label="Search team memory" /></div>
         <div class="hub-filters" id="hub-filters">
           <button class="filter active" data-filter="all" type="button">All</button>
-          <button class="filter" data-filter="complete" type="button">Complete</button>
-          <button class="filter" data-filter="in_progress" type="button">In progress</button>
+          <button class="filter" data-filter="chat" type="button">Chat</button>
+          <button class="filter" data-filter="artifact" type="button">Artifacts</button>
+          <button class="filter" data-filter="conflict" type="button">Conflicts</button>
         </div>
         <div class="memory-list" id="memory-list"></div>
         <footer class="hub-footer"><span class="pulse"></span><span id="poll-status">Checking for team updates…</span></footer>
@@ -214,13 +215,11 @@
 
     <dialog class="share-dialog" id="share-dialog">
       <form id="share-form" method="dialog">
-        <div class="dialog-heading"><div><p class="eyebrow">TEAM MEMORY</p><h2>Share completed work</h2></div><button class="close-button" id="close-share" type="button" aria-label="Close">×</button></div>
-        <p class="dialog-intro">This creates a durable, searchable update for the team. Your private chat stays private.</p>
-        <label>Title<input id="share-title" name="title" required maxlength="140" placeholder="e.g. Market sizing research completed" /></label>
-        <label>What did you learn or complete?<textarea id="share-description" name="description" required rows="5" placeholder="Include the takeaway, scope, and any useful handoff details."></textarea></label>
-        <div class="field-row"><label>Type<select id="share-type" name="type"><option value="task">Research or task</option><option value="feature">Feature</option><option value="fact">Research finding</option><option value="opinion">Opinion</option><option value="proposal">Proposal</option><option value="decision">Decision</option></select></label><label>Status<select id="share-status" name="status"><option value="complete">Complete</option><option value="in_progress">In progress</option><option value="superseded">Superseded</option></select></label></div>
-        <label>Files or links <span class="optional">optional · comma separated</span><input id="share-files" name="files" placeholder="market-sizing.xlsx, https://…" /></label>
-        <label>Endpoint <span class="optional">optional</span><input id="share-endpoint" name="endpoint" placeholder="/api/market-sizing" /></label>
+        <div class="dialog-heading"><div><p class="eyebrow">TEAM MEMORY</p><h2>Share with the team</h2></div><button class="close-button" id="close-share" type="button" aria-label="Close">×</button></div>
+        <p class="dialog-intro">This creates a durable shared-context record for the team. Your private chat stays private.</p>
+        <label>Record type<select id="share-type" name="type"><option value="chat">Chat excerpt</option><option value="artifact">Artifact</option></select></label>
+        <label>Content<textarea id="share-content" name="content" required rows="6" placeholder="Paste the message or artifact content verbatim."></textarea></label>
+        <label>Artifact type <span class="optional">for artifacts only</span><select id="share-artifact-type" name="artifact_type"><option value="">None</option><option value="documentation">Documentation</option><option value="handoff">Handoff</option><option value="conflict">Conflict</option></select></label>
         <div class="dialog-actions"><p id="share-error" role="alert"></p><button class="cancel-button" id="cancel-share" type="button">Cancel</button><button class="submit-share" type="submit">Publish to team hub</button></div>
       </form>
     </dialog>
@@ -264,7 +263,7 @@
         <div class="dialog-actions"><p id="entry-error" role="alert"></p><button class="cancel-button" id="cancel-entry" type="button">Cancel</button><button class="submit-share" id="save-entry" type="submit">Add resource</button></div>
       </form>
     </dialog>
-    <template id="welcome-template"><article class="welcome"><span class="welcome-star">✦</span><h2>What are we working on?</h2><p>Relay checks your team’s shared memory before beginning new research, so the work already done is easy to reuse.</p><div class="prompt-row"><button type="button" data-prompt="Summarize the latest team research">Summarize the latest team research</button><button type="button" data-prompt="Find work on market sizing">Find work on market sizing</button></div></article></template>
+    <template id="welcome-template"><article class="welcome"><span class="welcome-star">✦</span><h2>What are we working on?</h2><p>Relay checks your team’s shared memory before beginning new research, so the work already done is easy to reuse.</p><div class="prompt-row"><button type="button" data-prompt="What has the team completed on authentication?">What has the team completed on authentication?</button><button type="button" data-prompt="Is anyone already working on the dashboard?">Is anyone already working on the dashboard?</button></div></article></template>
     <script src="/app.js" defer></script>
   </body>
 </html>

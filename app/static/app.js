@@ -1,7 +1,7 @@
 (() => {
   const API = '/api';
   const MESSAGE_PAGE_SIZE = 50;
-  const state = { team: null, user: null, capabilities: null, users: [], conversations: [], conversation: null, items: [], config: null, configEntries: [], editingEntry: null, messages: [], messageIds: new Set(), nextBefore: null, hasMoreMessages: false, messagesLoading: false, loadingOlder: false, historyError: '', messageLoadId: 0, sending: false, creating: false, pollTimer: null, lastActivityAt: null };
+  const state = { team: null, user: null, capabilities: null, users: [], conversations: [], conversation: null, records: [], config: null, configEntries: [], editingEntry: null, messages: [], messageIds: new Set(), nextBefore: null, hasMoreMessages: false, messagesLoading: false, loadingOlder: false, historyError: '', messageLoadId: 0, sending: false, creating: false, pollTimer: null, lastActivityAt: null };
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
   const time = (value) => value ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : '';
@@ -98,9 +98,9 @@
   }
   function retrievedWork(response) {
     if (!response.duplicate_resolution?.detected && !(response.matches || []).length) return '';
-    const matches = (response.matches || []).slice(0, 3).map((item) => `<div class="match-card"><strong>${esc(item.title)}</strong><span class="match-status">${esc(item.status)}</span><p>${esc(item.author_name || 'Team')} · ${esc(item.description)}</p></div>`).join('');
-    const artifacts = (response.artifacts || []).slice(0, 3).map((artifact) => `<button type="button" class="artifact-link" data-artifact="${esc(artifact.id)}">Open saved ${esc(artifact.kind)}: ${esc(artifact.title)}</button>`).join('');
-    return `<section class="match-block"><div class="match-label">TEAM MEMORY CHECKED</div>${matches}${artifacts}</section>`;
+    const matches = (response.matches || []).slice(0, 3).map((record) => `<div class="match-card"><strong>${esc(record.type)}${record.artifact_type ? ` · ${esc(record.artifact_type)}` : ''}</strong><p>${esc(record.source_user_name || 'Team')} · ${esc(record.content)}</p></div>`).join('');
+    const related = (response.related_records || []).slice(0, 2).map((record) => `<button type="button" class="artifact-link" data-record="${esc(record.id)}">Related ${esc(record.type)} from ${esc(record.source_user_name || 'team')}</button>`).join('');
+    return `<section class="match-block"><div class="match-label">TEAM MEMORY CHECKED</div>${matches}${related}</section>`;
   }
   async function loadMessages() {
     const conversationId = state.conversation;
@@ -138,13 +138,16 @@
   }
   async function loadContext() {
     if (!state.team) return;
-    try { state.items = (await api('/context')).items || []; renderContext(); }
+    try { state.records = (await api('/context')).records || []; renderContext(); }
     catch { $('memory-list').innerHTML = '<p class="empty-state">Team memory is temporarily unavailable.</p>'; }
   }
   function renderContext() {
     const query = $('context-search').value.toLowerCase(); const filter = $('hub-filters').querySelector('.active')?.dataset.filter || 'all';
-    const visible = state.items.filter((item) => (filter === 'all' || item.status === filter) && `${item.title} ${item.description}`.toLowerCase().includes(query));
-    $('memory-list').innerHTML = visible.length ? visible.map((item) => `<article class="memory-card" data-status="${esc(item.status)}"><div class="memory-top"><span class="type-dot"></span>${esc(item.type)} · ${esc(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.description)}</p><footer>${esc(item.author_name || 'Team')} · ${time(item.updated_at)}</footer></article>`).join('') : '<p class="empty-state">No shared work matches this view.</p>';
+    const visible = state.records.filter((record) => {
+      const matchesFilter = filter === 'all' || (filter === 'chat' && record.type === 'chat') || (filter === 'artifact' && record.type === 'artifact') || (filter === 'conflict' && record.artifact_type === 'conflict');
+      return matchesFilter && `${record.content} ${record.source_user_name || ''} ${record.artifact_type || ''}`.toLowerCase().includes(query);
+    });
+    $('memory-list').innerHTML = visible.length ? visible.map((record) => `<article class="memory-card" data-status="${esc(record.type)}"><div class="memory-top"><span class="type-dot"></span>${esc(record.type)}${record.artifact_type ? ` · ${esc(record.artifact_type)}` : ''}</div><p>${esc(record.content)}</p><footer>${esc(record.source_user_name || 'System')} · ${time(record.created_at)}</footer></article>`).join('') : '<p class="empty-state">No shared work matches this view.</p>';
   }
   function pending() { messageList().insertAdjacentHTML('beforeend', '<article class="message pending" id="request-pending"><span class="avatar assistant-avatar">r</span><div><div class="message-meta">Relay</div><div class="message-body"><span class="dots"><i></i><i></i><i></i></span> Checking team memory and preparing a response…</div></div></article>'); scrollMessages(); }
   async function createConversation() {
@@ -168,9 +171,11 @@
   }
   function openShare() { $('share-error').textContent = ''; $('share-dialog').showModal(); }
   async function share(event) {
-    event.preventDefault(); const submit = event.currentTarget.querySelector('.submit-share'); const files = $('share-files').value.split(',').map((value) => value.trim()).filter(Boolean); busy(submit, true, 'Publishing…'); $('share-error').textContent = '';
+    event.preventDefault(); const submit = event.currentTarget.querySelector('.submit-share'); busy(submit, true, 'Publishing…'); $('share-error').textContent = '';
     try {
-      await api('/context', { method: 'POST', body: JSON.stringify({ type: $('share-type').value, title: $('share-title').value, description: $('share-description').value, status: $('share-status').value, files, endpoint: $('share-endpoint').value || undefined, source_type: 'chat', source_reference: `Private conversation ${state.conversation || 'handoff'}`, artifacts: [] }) });
+      const type = $('share-type').value;
+      const payload = { type, content: $('share-content').value, artifact_type: type === 'artifact' ? ($('share-artifact-type').value || undefined) : undefined };
+      await api('/context', { method: 'POST', body: JSON.stringify(payload) });
       $('share-dialog').close(); event.currentTarget.reset(); await loadContext();
     } catch (error) { $('share-error').textContent = error.message; } finally { busy(submit, false, 'Publishing…'); }
   }
@@ -187,9 +192,9 @@
     try { const suffix = state.lastActivityAt ? `?since=${encodeURIComponent(state.lastActivityAt)}` : ''; const data = await api(`/activity${suffix}`); state.lastActivityAt = data.server_time || state.lastActivityAt; if (data.events?.length) { showCatchup(data.events); await loadContext(); } $('poll-status').textContent = 'Team memory up to date'; }
     catch { if (state.user) $('poll-status').textContent = 'Team updates will retry soon'; }
   }
-  async function openArtifact(id) {
-    try { const artifact = (await api(`/artifacts/${encodeURIComponent(id)}`)).artifact; notice(`${artifact.title}: ${artifact.content || artifact.url || artifact.files?.join(', ') || 'No preview is available for this artifact.'}`); }
-    catch (error) { if (state.user) notice(`Could not open artifact: ${error.message}`); }
+  async function openRecord(id) {
+    try { const record = (await api(`/context/${encodeURIComponent(id)}`)).record; notice(`${record.type}${record.artifact_type ? ` (${record.artifact_type})` : ''}: ${record.content}`); }
+    catch (error) { if (state.user) notice(`Could not open record: ${error.message}`); }
   }
   async function mountAuthenticated(identity) {
     const initialProblem = identityProblem(identity);
@@ -219,7 +224,7 @@
 
   $('login-form').onsubmit = login; $('logout-button').onclick = logout; $('new-chat').onclick = createConversation; $('message-form').onsubmit = send;
   $('conversation-list').onclick = (event) => { const button = event.target.closest('[data-conversation]'); if (button && !state.sending) { state.conversation = button.dataset.conversation; renderConversations(); loadMessages(); } };
-  $('messages').onclick = (event) => { const prompt = event.target.closest('[data-prompt]'); const artifact = event.target.closest('[data-artifact]'); if (prompt) { $('message-input').value = prompt.dataset.prompt; $('message-input').focus(); } if (artifact) openArtifact(artifact.dataset.artifact); };
+  $('messages').onclick = (event) => { const prompt = event.target.closest('[data-prompt]'); const record = event.target.closest('[data-record]'); if (prompt) { $('message-input').value = prompt.dataset.prompt; $('message-input').focus(); } if (record) openRecord(record.dataset.record); };
   $('messages').onscroll = () => { if ($('messages').scrollTop <= 80) loadOlderMessages(); };
   $('history-control').onclick = (event) => { if (event.target.closest('[data-load-older]')) loadOlderMessages(); };
   $('context-search').oninput = renderContext;
