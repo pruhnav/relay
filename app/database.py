@@ -3,12 +3,45 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 
 DATABASE_PATH = Path(__file__).resolve().parent / "team_memory.db"
+
+DEMO_TEAM_ID = "team-northstar"
+DEMO_TEAM_NAME = "Northstar Consulting"
+# These are intentionally demo-only credentials. Passwords are never returned from the API.
+DEMO_USERS = (
+    ("john", "John", "john@northstar.consulting", "Northstar-John-2026!"),
+    ("mary", "Mary", "mary@northstar.consulting", "Northstar-Mary-2026!"),
+    ("bob", "Bob", "bob@northstar.consulting", "Northstar-Bob-2026!"),
+)
+
+
+def hash_password(password: str, salt: bytes | None = None) -> str:
+    """Create a portable, salted PBKDF2 hash without adding a demo dependency."""
+    actual_salt = salt or secrets.token_bytes(16)
+    iterations = 310_000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), actual_salt, iterations)
+    return f"pbkdf2_sha256${iterations}${actual_salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, encoded: str | None) -> bool:
+    if not encoded:
+        return False
+    try:
+        algorithm, iterations, salt_hex, digest_hex = encoded.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        candidate = hash_password(password, bytes.fromhex(salt_hex)).split("$", 3)[3]
+        return hmac.compare_digest(candidate, digest_hex)
+    except (TypeError, ValueError):
+        return False
 
 
 def connect() -> sqlite3.Connection:
@@ -31,7 +64,8 @@ def initialize() -> None:
                 id TEXT PRIMARY KEY,
                 team_id TEXT NOT NULL REFERENCES teams(id),
                 name TEXT NOT NULL,
-                email TEXT NOT NULL
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT
             );
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY,
@@ -87,10 +121,19 @@ def initialize() -> None:
                 summary TEXT NOT NULL,
                 occurred_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS authentication_sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id),
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT
+            );
             CREATE INDEX IF NOT EXISTS context_team_updated ON context_items(team_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS activity_team_time ON activity_events(team_id, occurred_at DESC);
             CREATE INDEX IF NOT EXISTS messages_conversation_time ON messages(conversation_id, created_at);
             CREATE INDEX IF NOT EXISTS artifacts_context ON artifacts(context_item_id);
+            CREATE INDEX IF NOT EXISTS auth_sessions_active ON authentication_sessions(id, expires_at, revoked_at);
             """
         )
 
@@ -105,35 +148,63 @@ def initialize() -> None:
             if column not in existing_columns:
                 db.execute(f"ALTER TABLE context_items ADD COLUMN {column} {definition}")
 
-        if db.execute("SELECT 1 FROM teams WHERE id = ?", ("team-northstar",)).fetchone():
+        user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+        if "password_hash" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+
+        db.execute("INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)", (DEMO_TEAM_ID, DEMO_TEAM_NAME))
+        db.execute("UPDATE teams SET name = ? WHERE id = ?", (DEMO_TEAM_NAME, DEMO_TEAM_ID))
+        # Insert the canonical users before remapping foreign keys from the former demo IDs.
+        for user_id, name, email, password in DEMO_USERS:
+            db.execute(
+                """INSERT INTO users (id, team_id, name, email, password_hash) VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET team_id = excluded.team_id, name = excluded.name,
+                       email = excluded.email, password_hash = excluded.password_hash""",
+                (user_id, DEMO_TEAM_ID, name, email, hash_password(password)),
+            )
+
+        # Migrate the earlier Person A / Person B local demo into the named team accounts.
+        # This preserves existing sample conversations and artifacts while making the roster exact.
+        existing_user_ids = {row["id"] for row in db.execute("SELECT id FROM users WHERE team_id = ?", (DEMO_TEAM_ID,))}
+        remaps = (("person-a", "john"), ("person-b", "mary"))
+        for old_id, new_id in remaps:
+            if old_id in existing_user_ids:
+                db.execute("UPDATE conversations SET user_id = ? WHERE user_id = ?", (new_id, old_id))
+                db.execute("UPDATE context_items SET author_id = ? WHERE author_id = ?", (new_id, old_id))
+                db.execute("UPDATE user_sessions SET user_id = ? WHERE user_id = ?", (new_id, old_id))
+                db.execute("UPDATE authentication_sessions SET user_id = ? WHERE user_id = ?", (new_id, old_id))
+                db.execute("DELETE FROM users WHERE id = ?", (old_id,))
+                existing_user_ids.remove(old_id)
+                existing_user_ids.add(new_id)
+
+        # Ensure no legacy demo identities remain visible in the single demo team.
+        allowed_ids = tuple(user[0] for user in DEMO_USERS)
+        markers = ", ".join("?" for _ in allowed_ids)
+        db.execute(f"DELETE FROM users WHERE team_id = ? AND id NOT IN ({markers})", (DEMO_TEAM_ID, *allowed_ids))
+
+        if db.execute("SELECT 1 FROM conversations WHERE team_id = ?", (DEMO_TEAM_ID,)).fetchone():
+            db.execute("UPDATE activity_events SET summary = REPLACE(summary, 'Person A', 'John') WHERE team_id = ?", (DEMO_TEAM_ID,))
+            db.commit()
             return
 
-        db.execute("INSERT INTO teams (id, name) VALUES (?, ?)", ("team-northstar", "Northstar Consulting"))
-        db.executemany(
-            "INSERT INTO users (id, team_id, name, email) VALUES (?, ?, ?, ?)",
-            [
-                ("person-a", "team-northstar", "Person A", "person.a@northstar.consulting"),
-                ("person-b", "team-northstar", "Person B", "person.b@northstar.consulting"),
-            ],
-        )
         db.executemany(
             "INSERT INTO conversations (id, team_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?)",
             [
-                ("conversation-a", "team-northstar", "person-a", "Authentication work", "2026-08-27T15:10:00Z"),
-                ("conversation-b", "team-northstar", "person-b", "Client portal research", "2026-08-28T09:00:00Z"),
+                ("conversation-john", DEMO_TEAM_ID, "john", "Authentication work", "2026-08-27T15:10:00Z"),
+                ("conversation-mary", DEMO_TEAM_ID, "mary", "Client portal research", "2026-08-28T09:00:00Z"),
             ],
         )
         item = (
             "google-authentication",
-            "team-northstar",
-            "person-a",
+            DEMO_TEAM_ID,
+            "john",
             "feature",
             "Google Authentication",
             "Backend Google OAuth authentication flow is implemented for the client portal. Frontend teams can begin integration using the documented callback route.",
             "complete",
             json.dumps(["app/auth.py", "app/routes.py", "docs/google-oauth-handoff.md"]),
             "/auth/google",
-            "Commit abc123 · Person A implementation handoff",
+            "Commit abc123 · John implementation handoff",
             "2026-08-27T15:20:00Z",
             "2026-08-27T16:42:00Z",
         )
@@ -147,7 +218,7 @@ def initialize() -> None:
             """INSERT INTO artifacts
             (id, team_id, context_item_id, kind, title, content, url, files_json, commit_sha, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("artifact-google-auth-handoff", "team-northstar", "google-authentication", "implementation",
+            ("artifact-google-auth-handoff", DEMO_TEAM_ID, "google-authentication", "implementation",
              "Google OAuth backend handoff", "Google OAuth backend flow, callback route, and integration notes.", None,
              json.dumps(["app/auth.py", "app/routes.py", "docs/google-oauth-handoff.md"]), "abc123", "2026-08-27T16:42:00Z"),
         )
@@ -156,8 +227,8 @@ def initialize() -> None:
         db.execute(
             """INSERT INTO activity_events (id, team_id, context_item_id, action, summary, occurred_at)
             VALUES (?, ?, ?, ?, ?, ?)""",
-            ("activity-google-auth-complete", "team-northstar", "google-authentication", "completed",
-             "Person A completed Google Authentication and shared its implementation handoff.", "2026-08-27T16:42:00Z"),
+            ("activity-google-auth-complete", DEMO_TEAM_ID, "google-authentication", "completed",
+             "John completed Google Authentication and shared its implementation handoff.", "2026-08-27T16:42:00Z"),
         )
         db.commit()
 

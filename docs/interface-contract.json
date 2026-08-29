@@ -1,39 +1,53 @@
 {
-  "version": "1.2.0",
-  "title": "Shared Team AI Agent — Iteration 3 API",
+  "version": "1.3.0",
+  "title": "Shared Team AI Agent — Demo Authentication Iteration API",
   "assumptions": [
-    "A single seeded consulting team is sufficient for the localhost demo.",
-    "Private messages remain scoped to a conversation; only an explicit share action writes shared team state.",
-    "Keyword matching is the MVP retrieval mechanism; the agent response adapter is deterministic until an LLM provider is configured.",
-    "The server records a member's last-seen time when they open a session and returns their catch-up update.",
-    "The centralized information hub is persistent team context, artifacts, and activity events; the MVP polls events rather than continuously synchronizing."
+    "This localhost MVP has one seeded consulting team, Northstar Consulting, with exactly three demo accounts: John, Mary, and Bob.",
+    "Authentication is demo-only: credentials are seeded in SQLite and passwords are stored as hashes. There is no account recovery, invitation, or SSO flow.",
+    "Successful login establishes a server-side session represented to the browser only by an HTTP-only, SameSite=Lax cookie with Path=/. Secure is enabled over HTTPS and may be disabled only for the localhost HTTP demo.",
+    "The server records last-seen time for the signed-in member. Shared memory persists team context, artifacts, and activity events.",
+    "Keyword matching is the MVP retrieval mechanism. The server may send bounded private history and relevant team-memory matches to the configured LLM provider."
   ],
   "resources": {
-    "Team": {"id":"string","name":"string"},
-    "User": {"id":"string","name":"string","email":"string"},
-    "Conversation": {"id":"string","team_id":"string","user_id":"string","title":"string","created_at":"ISO-8601"},
-    "Message": {"id":"string","conversation_id":"string","role":"user|assistant","content":"string","created_at":"ISO-8601"},
-    "Artifact": {"id":"string","team_id":"string","context_item_id":"string","kind":"implementation|research|document|link","title":"string","content":"string|null","url":"string|null","files":"string[]","commit":"string|null","created_at":"ISO-8601"},
-    "TeamContextItem": {"id":"string","team_id":"string","author_id":"string","author_name":"string","type":"feature|task|fact|opinion|proposal|decision","title":"string","description":"string","status":"in_progress|complete|confirmed|superseded","files":"string[]","endpoint":"string|null","related_commit":"string|null","source_type":"chat|agent_task|manual|commit","source_reference":"string","artifact_ids":"string[]","created_at":"ISO-8601","updated_at":"ISO-8601"},
-    "ActivityEvent": {"id":"string","team_id":"string","context_item_id":"string","action":"created|updated|completed","summary":"string","occurred_at":"ISO-8601"}
+    "Team": {"id": "string", "name": "string"},
+    "User": {"id": "string", "team_id": "string", "name": "John|Mary|Bob", "email": "string"},
+    "AuthenticatedUser": {"user": "User", "team": "Team"},
+    "Conversation": {"id": "string", "team_id": "string", "user_id": "string", "title": "string", "created_at": "ISO-8601"},
+    "Message": {"id": "string", "conversation_id": "string", "role": "user|assistant", "content": "string", "created_at": "ISO-8601"},
+    "Artifact": {"id": "string", "team_id": "string", "context_item_id": "string", "kind": "implementation|research|document|link", "title": "string", "content": "string|null", "url": "string|null", "files": "string[]", "commit": "string|null", "created_at": "ISO-8601"},
+    "TeamContextItem": {"id": "string", "team_id": "string", "author_id": "string", "author_name": "string", "type": "feature|task|fact|opinion|proposal|decision", "title": "string", "description": "string", "status": "in_progress|complete|confirmed|superseded", "files": "string[]", "endpoint": "string|null", "related_commit": "string|null", "source_type": "chat|agent_task|manual|commit", "source_reference": "string", "artifact_ids": "string[]", "created_at": "ISO-8601", "updated_at": "ISO-8601"},
+    "ActivityEvent": {"id": "string", "team_id": "string", "context_item_id": "string", "action": "created|updated|completed", "summary": "string", "occurred_at": "ISO-8601"}
+  },
+  "authorization": {
+    "session": "Every /api endpoint except POST /api/auth/login and GET /api/health requires a valid, unexpired, unrevoked session cookie. Invalid session returns 401 without resource-existence details.",
+    "private_conversations": "Server derives current user and team exclusively from the session. A member may list, read, create, and post only to conversations where user_id and team_id match their session. Cross-user or cross-team conversation IDs return 404.",
+    "shared_memory": "Every authenticated member may search, read artifacts, and poll activity only for their own team. Clients do not submit team_id. Cross-team resources return 404.",
+    "shared_memory_writes": "Server derives team_id and author_id from the session. Members may create their own team context and may patch only records they authored. Patching another member's item returns 403."
   },
   "endpoints": [
-    {"method":"GET","path":"/api/bootstrap","params":{"user_id":"string"},"success":{"200":{"team":"Team","users":"User[]","conversations":"Conversation[]","active_user_id":"string"}},"errors":["400","404","500"]},
-    {"method":"POST","path":"/api/conversations","request":{"team_id":"string","user_id":"string","title":"optional string (1-240 characters)"},"success":{"201":{"conversation":"Conversation"}},"errors":["400 missing, invalid, or mismatched team/user; invalid title","404 team or user not found","500"]},
-    {"method":"POST","path":"/api/sessions","request":{"team_id":"string","user_id":"string"},"success":{"200":{"previous_last_seen_at":"ISO-8601|null","events":"ActivityEvent[]","items":"TeamContextItem[]","server_time":"ISO-8601"}},"errors":["400","404","500"]},
-    {"method":"GET","path":"/api/conversations/{conversation_id}/messages","params":{"conversation_id":"string","user_id":"string"},"success":{"200":{"messages":"Message[]"}},"errors":["403","404","500"]},
-    {"method":"POST","path":"/api/conversations/{conversation_id}/messages","params":{"conversation_id":"string"},"request":{"content":"string","user_id":"string","client_message_id":"optional string"},"success":{"201":{"user_message":"Message","assistant_message":"Message","matches":"TeamContextItem[]","artifacts":"Artifact[]","duplicate_resolution":{"detected":"boolean","context_item_ids":"string[]","recommended_next_step":"string|null"},"share_suggestion":"object|null"}},"errors":["400","404","500"]},
-    {"method":"GET","path":"/api/context","params":{"team_id":"string","q":"optional string","status":"optional status","type":"optional type"},"success":{"200":{"items":"TeamContextItem[]"}},"errors":["400","500"]},
-    {"method":"POST","path":"/api/context","request":{"team_id":"string","author_id":"string","type":"feature|task|fact|opinion|proposal|decision","title":"string","description":"string","status":"in_progress|complete|confirmed|superseded","files":"optional string[]","endpoint":"optional string","related_commit":"optional string","source_type":"chat|agent_task|manual|commit","source_reference":"string","artifacts":"optional partial Artifact[]"},"success":{"201":{"item":"TeamContextItem","artifacts":"Artifact[]","event":"ActivityEvent"}},"errors":["400 invalid enum or missing provenance","404","500"]},
-    {"method":"PATCH","path":"/api/context/{context_item_id}","params":{"context_item_id":"string"},"request":{"status":"optional in_progress|complete|confirmed|superseded","description":"optional string","files":"optional string[]","endpoint":"optional string","related_commit":"optional string","artifacts":"optional partial Artifact[]"},"success":{"200":{"item":"TeamContextItem","artifacts":"Artifact[]","event":"ActivityEvent"}},"errors":["400 invalid status transition","404","500"]},
-    {"method":"GET","path":"/api/artifacts/{artifact_id}","params":{"artifact_id":"string","team_id":"string"},"success":{"200":{"artifact":"Artifact"}},"errors":["404","500"]},
-    {"method":"GET","path":"/api/activity","params":{"team_id":"string","since":"optional ISO-8601 timestamp"},"success":{"200":{"events":"ActivityEvent[]","server_time":"ISO-8601"}},"errors":["400","500"]}
+    {"method": "POST", "path": "/api/auth/login", "auth": "public", "request": {"email": "company email string", "password": "string"}, "success": {"200": {"user": "User", "team": "Team"}}, "side_effects": ["creates or rotates a server-side session", "sets the HTTP-only SameSite=Lax session cookie"], "errors": ["400", "401 invalid credentials", "429 optional rate limit", "500"]},
+    {"method": "POST", "path": "/api/auth/logout", "auth": "session optional; idempotent", "request": {}, "success": {"204": null}, "side_effects": ["revokes current session if present", "clears the session cookie"], "errors": ["500"]},
+    {"method": "GET", "path": "/api/auth/me", "auth": "session required", "success": {"200": {"user": "User", "team": "Team"}}, "errors": ["401", "500"]},
+    {"method": "GET", "path": "/api/bootstrap", "auth": "session required", "success": {"200": {"team": "Team", "users": "User[]", "conversations": "Conversation[]", "active_user_id": "string"}}, "notes": "conversations includes only the session user's conversations; users contains roster identity data without credentials.", "errors": ["401", "500"]},
+    {"method": "POST", "path": "/api/conversations", "auth": "session required", "request": {"title": "optional string (1-240 characters)"}, "success": {"201": {"conversation": "Conversation"}}, "errors": ["400 invalid title", "401", "500"]},
+    {"method": "POST", "path": "/api/sessions", "auth": "session required", "request": {}, "success": {"200": {"previous_last_seen_at": "ISO-8601|null", "events": "ActivityEvent[]", "items": "TeamContextItem[]", "server_time": "ISO-8601"}}, "errors": ["401", "500"]},
+    {"method": "GET", "path": "/api/conversations/{conversation_id}/messages", "auth": "session required; owner-only conversation", "params": {"conversation_id": "string"}, "success": {"200": {"messages": "Message[]"}}, "errors": ["401", "404", "500"]},
+    {"method": "POST", "path": "/api/conversations/{conversation_id}/messages", "auth": "session required; owner-only conversation", "params": {"conversation_id": "string"}, "request": {"content": "string", "client_message_id": "optional string"}, "success": {"201": {"user_message": "Message", "assistant_message": "Message", "matches": "TeamContextItem[]", "artifacts": "Artifact[]", "duplicate_resolution": {"detected": "boolean", "context_item_ids": "string[]", "recommended_next_step": "string|null"}, "share_suggestion": "object|null"}}, "errors": ["400", "401", "404", "500"]},
+    {"method": "GET", "path": "/api/context", "auth": "session required; session-team only", "params": {"q": "optional string", "status": "optional status", "type": "optional type"}, "success": {"200": {"items": "TeamContextItem[]"}}, "errors": ["400", "401", "500"]},
+    {"method": "POST", "path": "/api/context", "auth": "session required; session team and author inferred", "request": {"type": "feature|task|fact|opinion|proposal|decision", "title": "string", "description": "string", "status": "in_progress|complete|confirmed|superseded", "files": "optional string[]", "endpoint": "optional string", "related_commit": "optional string", "source_type": "chat|agent_task|manual|commit", "source_reference": "string", "artifacts": "optional partial Artifact[]"}, "success": {"201": {"item": "TeamContextItem", "artifacts": "Artifact[]", "event": "ActivityEvent"}}, "errors": ["400 invalid enum or missing provenance", "401", "500"]},
+    {"method": "PATCH", "path": "/api/context/{context_item_id}", "auth": "session required; author-only write within session team", "params": {"context_item_id": "string"}, "request": {"status": "optional in_progress|complete|confirmed|superseded", "description": "optional string", "files": "optional string[]", "endpoint": "optional string", "related_commit": "optional string", "artifacts": "optional partial Artifact[]"}, "success": {"200": {"item": "TeamContextItem", "artifacts": "Artifact[]", "event": "ActivityEvent"}}, "errors": ["400 invalid status transition", "401", "403", "404", "500"]},
+    {"method": "GET", "path": "/api/artifacts/{artifact_id}", "auth": "session required; session-team only", "params": {"artifact_id": "string"}, "success": {"200": {"artifact": "Artifact"}}, "errors": ["401", "404", "500"]},
+    {"method": "GET", "path": "/api/activity", "auth": "session required; session-team only", "params": {"since": "optional ISO-8601 timestamp"}, "success": {"200": {"events": "ActivityEvent[]", "server_time": "ISO-8601"}}, "errors": ["400", "401", "500"]},
+    {"method": "GET", "path": "/api/health", "auth": "public", "success": {"200": {"status": "ok", "agent_mode": "demo|live"}}, "errors": ["500"]}
   ],
   "behavior": {
-    "duplicate_work": "Every meaningful POST message searches only its team's shared context before the response is generated. If related work is in progress or complete, duplicate_resolution is true, the response identifies the owner/status, returns saved Artifact records, and recommends reuse or remaining complementary work rather than repeating completed work.",
-    "catch_up": "POST /api/sessions returns shared events after the server-persisted previous_last_seen_at and then advances that time. GET activity with since supplies subsequent polling updates for the Team Activity view.",
-    "authority": "Facts, opinions, proposals, and decisions are separate types. Only decisions may use confirmed status; competing proposals are never silently collapsed.",
-    "privacy": "A private message never becomes shared state automatically. The agent may return a share_suggestion, but the client must explicitly call POST /api/context to publish it.",
-    "conversation_creation": "POST /api/conversations creates an empty private conversation owned by user_id within team_id. The server must verify that both records exist and that the user belongs to the supplied team; it must reject cross-team ownership. A missing title is assigned a server-defined safe default. The new conversation contains no messages, is visible only through that owner’s conversation list and with the existing message endpoints only when their user_id matches, and does not create shared context or activity events."
+    "login": "A login accepts only seeded company email/password pairs. It returns identity metadata, never passwords, hashes, session IDs, or a credential list. Browser JavaScript relies on the HTTP-only cookie and calls GET /api/auth/me to resolve signed-in state.",
+    "logout": "Logout revokes server-side session state, clears its cookie, and returns the browser to the public landing/login screen. Calling it with no valid session is safe.",
+    "duplicate_work": "Every meaningful authenticated message searches only the session team's shared context before response generation. Related in-progress or complete work sets duplicate_resolution, identifies owner/status, returns saved artifacts, and recommends reuse or complementary work.",
+    "catch_up": "POST /api/sessions returns shared events after the signed-in user's persisted previous_last_seen_at and then advances it. GET /api/activity with since supports subsequent polling.",
+    "authority": "Facts, opinions, proposals, and decisions remain distinct. Only decisions may use confirmed status; competing proposals are never silently collapsed.",
+    "privacy": "Private messages never become shared automatically. The agent may suggest a handoff, but the signed-in user must explicitly call POST /api/context. Shared data is accessible to John, Mary, and Bob only after login.",
+    "conversation_creation": "POST /api/conversations creates an empty private conversation owned by the signed-in user. Missing titles receive a server-defined safe default; creation makes no shared context or activity event.",
+    "seeded_demo_scope": "The database seeds John, Mary, and Bob as the only Northstar Consulting users. Demo credentials are implementation data and must be supplied separately in the local-demo handoff; no API exposes them."
   }
 }

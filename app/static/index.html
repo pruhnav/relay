@@ -9,19 +9,39 @@
     <style>.app-notice{position:fixed;z-index:20;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid #6e5159;border-radius:9px;background:#38252a;color:#ffe0e3;font-size:12px;box-shadow:0 12px 30px #0008}.app-notice button{border:0;border-radius:6px;padding:5px 8px;background:#f3b5c6;color:#34151d;font:inherit;font-weight:700;cursor:pointer}.pending .message-body{display:flex;gap:8px;align-items:center;color:#bdb8bd}.dots{display:inline-flex;gap:4px}.dots i{width:5px;height:5px;background:#d9f96e;border-radius:50%;animation:pulse 1s infinite alternate}.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}@keyframes pulse{from{opacity:.2;transform:translateY(1px)}to{opacity:1;transform:translateY(-2px)}}button[aria-busy="true"]{cursor:wait;opacity:.65}</style>
   </head>
   <body>
-    <div class="app-shell">
+    <main class="auth-screen" id="auth-screen" aria-labelledby="login-title">
+      <section class="auth-intro">
+        <div class="brand"><span class="brand-mark">r</span><span>relay</span></div>
+        <div class="auth-copy"><p class="eyebrow">NORTHSTAR CONSULTING</p><h1>Team intelligence, without repeated work.</h1><p>Relay checks the work your team has already shared before a new research task begins.</p></div>
+        <p class="auth-footnote">Private conversations. Deliberate team handoffs.</p>
+      </section>
+      <section class="login-card" aria-label="Company sign in">
+        <p class="eyebrow">TEAM ACCESS</p><h2 id="login-title">Sign in to Relay</h2>
+        <p class="login-subtitle">Use your Northstar company credentials to continue.</p>
+        <form id="login-form">
+          <label for="login-email">Company email</label>
+          <input id="login-email" name="email" type="email" autocomplete="username" required placeholder="you@northstar.consulting" />
+          <label for="login-password">Password</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required placeholder="Enter your password" />
+          <p class="login-error" id="login-error" role="alert" aria-live="polite"></p>
+          <button class="login-button" id="login-submit" type="submit">Sign in</button>
+        </form>
+        <p class="login-help">Demo workspace for Northstar Consulting.</p>
+      </section>
+    </main>
+
+    <div class="app-shell" id="app-shell" hidden>
       <aside class="rail" aria-label="Conversations">
         <div class="brand"><span class="brand-mark">r</span><span>relay</span></div>
         <button class="new-chat" id="new-chat" type="button"><span>+</span> New conversation</button>
         <nav class="conversation-nav" id="conversation-list" aria-label="Private conversations"></nav>
         <div class="rail-foot">
           <div class="presence"><span class="presence-dot"></span><span>Team memory connected</span></div>
-          <button class="person-button" id="person-switcher" type="button" aria-haspopup="true" aria-expanded="false">
+          <div class="person-button" aria-label="Signed in user">
             <span class="avatar" id="active-user-avatar">A</span>
-            <span class="person-copy"><strong id="active-user-name">Loading…</strong><small>switch researcher</small></span>
-            <span class="chevron">⌄</span>
-          </button>
-          <div class="person-menu" id="person-menu" hidden></div>
+            <span class="person-copy"><strong id="active-user-name">Loading…</strong><small id="active-team-name">Northstar Consulting</small></span>
+            <button class="logout-button" id="logout-button" type="button">Log out</button>
+          </div>
         </div>
       </aside>
 
@@ -80,7 +100,7 @@
         <div class="dialog-actions"><p id="share-error" role="alert"></p><button class="cancel-button" id="cancel-share" type="button">Cancel</button><button class="submit-share" type="submit">Publish to team hub</button></div>
       </form>
     </dialog>
-    <template id="welcome-template"><article class="welcome"><span class="welcome-star">✦</span><h2>What are we working on?</h2><p>Relay checks your team’s shared memory before beginning new research, so the work already done is easy to reuse.</p><div class="prompt-row"><button type="button">Summarize the latest team research</button><button type="button">Find work on market sizing</button></div></article></template>
+    <template id="welcome-template"><article class="welcome"><span class="welcome-star">✦</span><h2>What are we working on?</h2><p>Relay checks your team’s shared memory before beginning new research, so the work already done is easy to reuse.</p><div class="prompt-row"><button type="button" data-prompt="Summarize the latest team research">Summarize the latest team research</button><button type="button" data-prompt="Find work on market sizing">Find work on market sizing</button></div></article></template>
     <script src="/app.js" defer></script>
   </body>
 </html>
