@@ -131,8 +131,11 @@
       .config-entry .audit-status { border: 1px solid #4a454e; border-radius: 999px; padding: 2px 6px; }
       .config-entry .audit-status.valid, .execution-state.succeeded { color: var(--accent); border-color: #536334; }
       .config-entry .audit-status.invalid, .execution-state.failed, .execution-state.rejected { color: #ffb5bd; border-color: #71444c; }
-      .execution-list { display: grid; gap: 8px; max-width: 780px; margin: 0 auto 6px; width: 100%; }
-      .execution-card { border: 1px solid #46404a; border-left: 3px solid var(--violet); border-radius: 8px; background: #211e22; padding: 10px 12px; font-size: 11px; }
+      .message-list { min-height: 0 !important; width: 100%; }
+      .message > div { min-width: 0; }
+      .message-body { display: block; max-width: 100%; overflow: visible; overflow-wrap: anywhere; word-break: break-word; }
+      .execution-list { position: static; display: grid; flex: 0 0 auto; gap: 8px; max-width: 780px; margin: 0 auto 6px; width: 100%; isolation: isolate; }
+      .execution-card { position: static; z-index: auto; border: 1px solid #46404a; border-left: 3px solid var(--violet); border-radius: 8px; background: #211e22; padding: 10px 12px; font-size: 11px; }
       .execution-card header { display: flex; align-items: center; gap: 7px; color: #d8d4d8; font-weight: 650; }
       .execution-card p { color: var(--muted); margin: 5px 0 0; line-height: 1.45; white-space: pre-wrap; }
       .execution-card .dialog-actions { margin-top: 9px; }

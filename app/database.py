@@ -116,7 +116,8 @@ def initialize() -> None:
                 team_id TEXT NOT NULL REFERENCES teams(id),
                 user_id TEXT NOT NULL REFERENCES users(id),
                 title TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                last_activity_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,
@@ -316,6 +317,21 @@ def initialize() -> None:
         if "revision" not in configuration_columns:
             db.execute("ALTER TABLE agent_configurations ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
 
+        # Legacy conversation tables are upgraded atomically within initialize()'s transaction.
+        # SQLite cannot add a non-null column without a default to existing rows, so add it
+        # nullable, backfill from the latest private message (or creation), then make every new
+        # write supply a non-null value through the current table definition/application paths.
+        conversation_columns = {row[1] for row in db.execute("PRAGMA table_info(conversations)")}
+        if "last_activity_at" not in conversation_columns:
+            db.execute("ALTER TABLE conversations ADD COLUMN last_activity_at TEXT")
+        db.execute(
+            """UPDATE conversations SET last_activity_at = COALESCE(
+                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id),
+                   created_at)
+               WHERE last_activity_at IS NULL"""
+        )
+        db.execute("CREATE INDEX IF NOT EXISTS conversations_owner_activity ON conversations(team_id, user_id, last_activity_at DESC, id DESC)")
+
         # An instruction bundle is conventionally named SKILL.md.  Keep its title as the unique
         # human identifier so a team may install more than one distinct SKILL.md bundle without
         # rewriting or losing any documents created under the earlier filename-only constraint.
@@ -450,10 +466,10 @@ def initialize() -> None:
             return
 
         db.executemany(
-            "INSERT INTO conversations (id, team_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO conversations (id, team_id, user_id, title, created_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?)",
             [
-                ("conversation-john", DEMO_TEAM_ID, "john", "Authentication work", "2026-08-27T15:10:00Z"),
-                ("conversation-mary", DEMO_TEAM_ID, "mary", "Client portal research", "2026-08-28T09:00:00Z"),
+                ("conversation-john", DEMO_TEAM_ID, "john", "Authentication work", "2026-08-27T15:10:00Z", "2026-08-27T15:10:00Z"),
+                ("conversation-mary", DEMO_TEAM_ID, "mary", "Client portal research", "2026-08-28T09:00:00Z", "2026-08-28T09:00:00Z"),
             ],
         )
         item = (

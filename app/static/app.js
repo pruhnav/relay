@@ -135,6 +135,13 @@
     $('conversation-list').innerHTML = state.conversations.length ? state.conversations.map((item) => `<button class="conversation ${item.id === state.conversation ? 'active' : ''}" data-conversation="${esc(item.id)}" type="button">${esc(item.title)}</button>`).join('') : '<p class="loading">No conversations yet.</p>';
     $('conversation-title').textContent = state.conversations.find((item) => item.id === state.conversation)?.title || 'New research conversation';
   }
+  function conversationTimestamp(conversation) { const value = conversation?.last_activity_at || conversation?.updated_at || conversation?.created_at || ''; const timestamp = Date.parse(value); return Number.isFinite(timestamp) ? timestamp : 0; }
+  function orderConversations(conversations) { return [...(conversations || [])].sort((left, right) => conversationTimestamp(right) - conversationTimestamp(left) || String(right.id || '').localeCompare(String(left.id || ''))); }
+  function moveConversationToTop(conversation) {
+    if (!conversation?.id) return;
+    state.conversations = [conversation, ...state.conversations.filter((item) => item.id !== conversation.id)];
+    state.conversation = conversation.id; renderConversations();
+  }
   function messageMarkup(message) {
     const assistant = message.role === 'assistant'; const author = assistant ? { name: 'Relay' } : state.user;
     return `<article class="message"><span class="avatar ${assistant ? 'assistant-avatar' : ''}">${assistant ? 'r' : initials(author.name)}</span><div><div class="message-meta">${esc(author.name)}<time>${time(message.created_at)}</time></div><div class="message-body">${esc(message.content)}</div></div></article>`;
@@ -145,7 +152,7 @@
   function resetMessages() {
     state.messages = []; state.messageIds = new Set(); state.executions = []; state.nextBefore = null; state.hasMoreMessages = false; state.messagesLoading = false; state.loadingOlder = false; state.historyError = ''; state.messageLoadId += 1;
     if ($('message-list')) { messageList().replaceChildren(); renderHistoryControl(); }
-    if ($('execution-list')) renderExecutions();
+    if ($('execution-list')) renderExecutionsSafely();
   }
   function messageNode(message) {
     const template = document.createElement('template'); template.innerHTML = messageMarkup(message); return template.content.firstElementChild;
@@ -227,19 +234,23 @@
   }
   function renderExecutions() {
     const list = $('execution-list');
-    list.innerHTML = state.executions.length ? state.executions.map((execution) => {
+    const executions = Array.isArray(state.executions) ? state.executions : [];
+    list.innerHTML = executions.length ? executions.map((execution) => {
+      try {
       const stateLabel = esc((execution.state || 'requested').replace('_', ' ')); const detail = execution.error || execution.result || (execution.state === 'awaiting_approval' ? 'Relay is waiting for your approval before this external call.' : 'Relay recorded this capability call.');
       const approval = execution.state === 'awaiting_approval' ? `<div class="dialog-actions"><button class="cancel-button" type="button" data-execution-approval="false" data-execution-id="${esc(execution.id)}">Reject</button><button class="submit-share" type="button" data-execution-approval="true" data-execution-id="${esc(execution.id)}">Approve and continue</button></div>` : '';
       return `<article class="execution-card"><header><span>${esc(execution.capability_type === 'mcp' ? 'MCP' : 'HTTP tool')}</span><strong>${esc(execution.tool_name)}</strong><span class="execution-state ${esc(execution.state)}">${stateLabel}</span></header><p>${esc(readableExecutionResult(detail))}</p>${approval}</article>`;
+      } catch { return '<article class="execution-card"><header><span>Capability activity</span><span class="execution-state">recorded</span></header><p>The response is available, but this activity detail could not be displayed.</p></article>'; }
     }).join('') : '';
   }
+  function renderExecutionsSafely() { try { renderExecutions(); } catch { const list = $('execution-list'); if (list) list.textContent = 'Capability activity is available after refresh.'; } }
   async function loadExecutions() {
-    if (!state.conversation) { state.executions = []; renderExecutions(); return; }
-    try { state.executions = (await api(`/conversations/${encodeURIComponent(state.conversation)}/tool-executions`)).executions || []; renderExecutions(); }
-    catch { state.executions = []; renderExecutions(); }
+    if (!state.conversation) { state.executions = []; renderExecutionsSafely(); return; }
+    try { state.executions = (await api(`/conversations/${encodeURIComponent(state.conversation)}/tool-executions`)).executions || []; renderExecutionsSafely(); }
+    catch { state.executions = []; renderExecutionsSafely(); }
   }
   function mergeExecutions(executions) {
-    const incoming = executions || []; const byId = new Map(state.executions.map((item) => [item.id, item])); incoming.forEach((item) => byId.set(item.id, item)); state.executions = [...byId.values()]; renderExecutions();
+    const incoming = Array.isArray(executions) ? executions : []; const byId = new Map((Array.isArray(state.executions) ? state.executions : []).map((item) => [item.id, item])); incoming.forEach((item) => byId.set(item.id, item)); state.executions = [...byId.values()]; renderExecutionsSafely();
   }
   async function resolveExecution(executionId, approved, button) {
     busy(button, true, approved ? 'Continuing…' : 'Rejecting…');
@@ -252,7 +263,7 @@
   async function loadMessages() {
     const conversationId = state.conversation;
     resetMessages();
-    if (!conversationId) { welcome(); state.executions = []; renderExecutions(); return; }
+    if (!conversationId) { welcome(); state.executions = []; renderExecutionsSafely(); return; }
     const requestId = state.messageLoadId;
     state.messagesLoading = true; messageList().innerHTML = '<p class="loading">Loading recent private messages…</p>';
     try {
@@ -297,7 +308,7 @@
   async function createConversation() {
     if (state.creating || !state.user) return;
     state.creating = true; const button = $('new-chat'); busy(button, true, 'Creating…');
-    try { const data = await api('/conversations', { method: 'POST', body: JSON.stringify({}) }); state.conversations.unshift(data.conversation); state.conversation = data.conversation.id; renderConversations(); await loadMessages(); $('message-input').focus(); }
+    try { const data = await api('/conversations', { method: 'POST', body: JSON.stringify({}) }); moveConversationToTop(data.conversation); await loadMessages(); $('message-input').focus(); }
     catch (error) { if (state.user) notice(`Could not create a conversation: ${error.message}`, createConversation); }
     finally { state.creating = false; busy(button, false, 'Creating…'); }
   }
@@ -309,7 +320,8 @@
     if (messageList().querySelector('.welcome')) messageList().replaceChildren(); pending();
     try {
       const data = await api(`/conversations/${encodeURIComponent(state.conversation)}/messages`, { method: 'POST', body: JSON.stringify({ content: text }) });
-      const turn = data.turn; $('request-pending')?.remove(); addMessages([turn?.user_message, turn?.assistant_message]); mergeExecutions(turn?.executions); $('share-nudge').hidden = true; scrollMessages();
+      const turn = data.turn || {}; const userMessage = data.user_message || turn.user_message; const assistantMessage = data.assistant_message || turn.assistant_message;
+      $('request-pending')?.remove(); addMessages([userMessage, assistantMessage]); mergeExecutions(turn.executions || data.executions); moveConversationToTop(data.conversation); $('share-nudge').hidden = true; scrollMessages();
     } catch (error) { $('request-pending')?.remove(); input.value = text; if (state.user) notice(`Message was not sent: ${error.message}`, () => send({ preventDefault() {} })); }
     finally { state.sending = false; busy(button, false); input.disabled = false; input.focus(); }
   }
@@ -347,7 +359,7 @@
       const bootstrapIdentity = { user: state.user, team: state.team, capabilities: bootstrap.capabilities };
       const bootstrapProblem = identityProblem(bootstrapIdentity);
       if (bootstrapProblem) { showIdentityError(bootstrapProblem, () => start()); return; }
-      state.capabilities = bootstrap.capabilities; state.users = bootstrap.users || []; state.conversations = bootstrap.conversations || []; state.conversation = state.conversations[0]?.id || null; showApp(); renderIdentity(); renderConversations();
+      state.capabilities = bootstrap.capabilities; state.users = bootstrap.users || []; state.conversations = orderConversations(bootstrap.conversations || []); state.conversation = state.conversations[0]?.id || null; showApp(); renderIdentity(); renderConversations();
       await Promise.all([loadMessages(), loadContext(), openSession()]); clearInterval(state.pollTimer); state.pollTimer = setInterval(pollActivity, 45000);
     } catch (error) { if (state.user) notice(`Relay could not load: ${error.message}`, () => mountAuthenticated(identity)); }
   }
@@ -365,6 +377,7 @@
   async function start() { try { await mountAuthenticated(await api('/auth/me', {}, { allowUnauthorized: true })); } catch { showLogin(); } }
 
   $('login-form').onsubmit = login; $('logout-button').onclick = logout; $('new-chat').onclick = createConversation; $('message-form').onsubmit = send;
+  $('message-input').onkeydown = (event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!state.sending) $('message-form').requestSubmit(); } };
   $('conversation-list').onclick = (event) => { const button = event.target.closest('[data-conversation]'); if (button && !state.sending) { state.conversation = button.dataset.conversation; renderConversations(); loadMessages(); } };
   $('messages').onclick = (event) => { const prompt = event.target.closest('[data-prompt]'); const artifact = event.target.closest('[data-artifact]'); const approval = event.target.closest('[data-execution-approval]'); if (prompt) { $('message-input').value = prompt.dataset.prompt; $('message-input').focus(); } if (artifact) openArtifact(artifact.dataset.artifact); if (approval) resolveExecution(approval.dataset.executionId, approval.dataset.executionApproval === 'true', approval); };
   $('messages').onscroll = () => { if ($('messages').scrollTop <= 80) loadOlderMessages(); };
