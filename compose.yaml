@@ -1,0 +1,11 @@
+services:
+  dev:
+    build: .
+    env_file:
+      - .env
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    ports:
+      - "8000:8000"
+    command: tail -f /dev/null

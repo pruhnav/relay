@@ -1,0 +1,39 @@
+{
+  "version": "1.2.0",
+  "title": "Shared Team AI Agent — Iteration 3 API",
+  "assumptions": [
+    "A single seeded consulting team is sufficient for the localhost demo.",
+    "Private messages remain scoped to a conversation; only an explicit share action writes shared team state.",
+    "Keyword matching is the MVP retrieval mechanism; the agent response adapter is deterministic until an LLM provider is configured.",
+    "The server records a member's last-seen time when they open a session and returns their catch-up update.",
+    "The centralized information hub is persistent team context, artifacts, and activity events; the MVP polls events rather than continuously synchronizing."
+  ],
+  "resources": {
+    "Team": {"id":"string","name":"string"},
+    "User": {"id":"string","name":"string","email":"string"},
+    "Conversation": {"id":"string","team_id":"string","user_id":"string","title":"string","created_at":"ISO-8601"},
+    "Message": {"id":"string","conversation_id":"string","role":"user|assistant","content":"string","created_at":"ISO-8601"},
+    "Artifact": {"id":"string","team_id":"string","context_item_id":"string","kind":"implementation|research|document|link","title":"string","content":"string|null","url":"string|null","files":"string[]","commit":"string|null","created_at":"ISO-8601"},
+    "TeamContextItem": {"id":"string","team_id":"string","author_id":"string","author_name":"string","type":"feature|task|fact|opinion|proposal|decision","title":"string","description":"string","status":"in_progress|complete|confirmed|superseded","files":"string[]","endpoint":"string|null","related_commit":"string|null","source_type":"chat|agent_task|manual|commit","source_reference":"string","artifact_ids":"string[]","created_at":"ISO-8601","updated_at":"ISO-8601"},
+    "ActivityEvent": {"id":"string","team_id":"string","context_item_id":"string","action":"created|updated|completed","summary":"string","occurred_at":"ISO-8601"}
+  },
+  "endpoints": [
+    {"method":"GET","path":"/api/bootstrap","params":{"user_id":"string"},"success":{"200":{"team":"Team","users":"User[]","conversations":"Conversation[]","active_user_id":"string"}},"errors":["400","404","500"]},
+    {"method":"POST","path":"/api/conversations","request":{"team_id":"string","user_id":"string","title":"optional string (1-240 characters)"},"success":{"201":{"conversation":"Conversation"}},"errors":["400 missing, invalid, or mismatched team/user; invalid title","404 team or user not found","500"]},
+    {"method":"POST","path":"/api/sessions","request":{"team_id":"string","user_id":"string"},"success":{"200":{"previous_last_seen_at":"ISO-8601|null","events":"ActivityEvent[]","items":"TeamContextItem[]","server_time":"ISO-8601"}},"errors":["400","404","500"]},
+    {"method":"GET","path":"/api/conversations/{conversation_id}/messages","params":{"conversation_id":"string","user_id":"string"},"success":{"200":{"messages":"Message[]"}},"errors":["403","404","500"]},
+    {"method":"POST","path":"/api/conversations/{conversation_id}/messages","params":{"conversation_id":"string"},"request":{"content":"string","user_id":"string","client_message_id":"optional string"},"success":{"201":{"user_message":"Message","assistant_message":"Message","matches":"TeamContextItem[]","artifacts":"Artifact[]","duplicate_resolution":{"detected":"boolean","context_item_ids":"string[]","recommended_next_step":"string|null"},"share_suggestion":"object|null"}},"errors":["400","404","500"]},
+    {"method":"GET","path":"/api/context","params":{"team_id":"string","q":"optional string","status":"optional status","type":"optional type"},"success":{"200":{"items":"TeamContextItem[]"}},"errors":["400","500"]},
+    {"method":"POST","path":"/api/context","request":{"team_id":"string","author_id":"string","type":"feature|task|fact|opinion|proposal|decision","title":"string","description":"string","status":"in_progress|complete|confirmed|superseded","files":"optional string[]","endpoint":"optional string","related_commit":"optional string","source_type":"chat|agent_task|manual|commit","source_reference":"string","artifacts":"optional partial Artifact[]"},"success":{"201":{"item":"TeamContextItem","artifacts":"Artifact[]","event":"ActivityEvent"}},"errors":["400 invalid enum or missing provenance","404","500"]},
+    {"method":"PATCH","path":"/api/context/{context_item_id}","params":{"context_item_id":"string"},"request":{"status":"optional in_progress|complete|confirmed|superseded","description":"optional string","files":"optional string[]","endpoint":"optional string","related_commit":"optional string","artifacts":"optional partial Artifact[]"},"success":{"200":{"item":"TeamContextItem","artifacts":"Artifact[]","event":"ActivityEvent"}},"errors":["400 invalid status transition","404","500"]},
+    {"method":"GET","path":"/api/artifacts/{artifact_id}","params":{"artifact_id":"string","team_id":"string"},"success":{"200":{"artifact":"Artifact"}},"errors":["404","500"]},
+    {"method":"GET","path":"/api/activity","params":{"team_id":"string","since":"optional ISO-8601 timestamp"},"success":{"200":{"events":"ActivityEvent[]","server_time":"ISO-8601"}},"errors":["400","500"]}
+  ],
+  "behavior": {
+    "duplicate_work": "Every meaningful POST message searches only its team's shared context before the response is generated. If related work is in progress or complete, duplicate_resolution is true, the response identifies the owner/status, returns saved Artifact records, and recommends reuse or remaining complementary work rather than repeating completed work.",
+    "catch_up": "POST /api/sessions returns shared events after the server-persisted previous_last_seen_at and then advances that time. GET activity with since supplies subsequent polling updates for the Team Activity view.",
+    "authority": "Facts, opinions, proposals, and decisions are separate types. Only decisions may use confirmed status; competing proposals are never silently collapsed.",
+    "privacy": "A private message never becomes shared state automatically. The agent may return a share_suggestion, but the client must explicitly call POST /api/context to publish it.",
+    "conversation_creation": "POST /api/conversations creates an empty private conversation owned by user_id within team_id. The server must verify that both records exist and that the user belongs to the supplied team; it must reject cross-team ownership. A missing title is assigned a server-defined safe default. The new conversation contains no messages, is visible only through that owner’s conversation list and with the existing message endpoints only when their user_id matches, and does not create shared context or activity events."
+  }
+}

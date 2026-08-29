@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#151316" />
+    <title>Relay — Team memory</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <style>.app-notice{position:fixed;z-index:20;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid #6e5159;border-radius:9px;background:#38252a;color:#ffe0e3;font-size:12px;box-shadow:0 12px 30px #0008}.app-notice button{border:0;border-radius:6px;padding:5px 8px;background:#f3b5c6;color:#34151d;font:inherit;font-weight:700;cursor:pointer}.pending .message-body{display:flex;gap:8px;align-items:center;color:#bdb8bd}.dots{display:inline-flex;gap:4px}.dots i{width:5px;height:5px;background:#d9f96e;border-radius:50%;animation:pulse 1s infinite alternate}.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}@keyframes pulse{from{opacity:.2;transform:translateY(1px)}to{opacity:1;transform:translateY(-2px)}}button[aria-busy="true"]{cursor:wait;opacity:.65}</style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="rail" aria-label="Conversations">
+        <div class="brand"><span class="brand-mark">r</span><span>relay</span></div>
+        <button class="new-chat" id="new-chat" type="button"><span>+</span> New conversation</button>
+        <nav class="conversation-nav" id="conversation-list" aria-label="Private conversations"></nav>
+        <div class="rail-foot">
+          <div class="presence"><span class="presence-dot"></span><span>Team memory connected</span></div>
+          <button class="person-button" id="person-switcher" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="avatar" id="active-user-avatar">A</span>
+            <span class="person-copy"><strong id="active-user-name">Loading…</strong><small>switch researcher</small></span>
+            <span class="chevron">⌄</span>
+          </button>
+          <div class="person-menu" id="person-menu" hidden></div>
+        </div>
+      </aside>
+
+      <main class="chat-panel">
+        <div class="app-notice" id="app-notice" role="status" aria-live="polite" hidden></div>
+        <header class="chat-header">
+          <div><p class="eyebrow">PRIVATE WORKSPACE</p><h1 id="conversation-title">Research chat</h1></div>
+          <div class="header-actions"><span class="private-chip">◌ Private</span><button class="icon-button" id="refresh-button" type="button" title="Refresh team activity">↻</button></div>
+        </header>
+
+        <section class="catchup" id="catchup-banner" hidden aria-live="polite">
+          <div class="catchup-icon">✦</div>
+          <div><strong id="catchup-title">Your team made progress</strong><p id="catchup-text"></p></div>
+          <button class="text-button" id="catchup-dismiss" type="button">Dismiss</button>
+        </section>
+
+        <section class="messages" id="messages" aria-live="polite"></section>
+
+        <section class="composer-wrap">
+          <div class="share-nudge" id="share-nudge" hidden>
+            <span>Finished a useful piece of work?</span><button class="text-button" id="nudge-share" type="button">Share it with the team</button>
+          </div>
+          <form class="composer" id="message-form">
+            <textarea id="message-input" rows="1" placeholder="Message Relay…" aria-label="Message Relay"></textarea>
+            <button class="send-button" type="submit" aria-label="Send message">↑</button>
+          </form>
+          <p class="composer-note">Private by default. Share completed work deliberately with your team.</p>
+        </section>
+      </main>
+
+      <aside class="hub-panel" aria-label="Shared team memory">
+        <header class="hub-header">
+          <div><p class="eyebrow">CENTRALIZED HUB</p><h2>Team memory</h2></div>
+          <button class="share-button" id="open-share" type="button">+ Share work</button>
+        </header>
+        <div class="hub-search"><span>⌕</span><input id="context-search" type="search" placeholder="Find past work" aria-label="Search team memory" /></div>
+        <div class="hub-filters" id="hub-filters">
+          <button class="filter active" data-filter="all" type="button">All</button>
+          <button class="filter" data-filter="complete" type="button">Complete</button>
+          <button class="filter" data-filter="in_progress" type="button">In progress</button>
+        </div>
+        <div class="memory-list" id="memory-list"></div>
+        <footer class="hub-footer"><span class="pulse"></span><span id="poll-status">Checking for team updates…</span></footer>
+      </aside>
+    </div>
+
+    <dialog class="share-dialog" id="share-dialog">
+      <form id="share-form" method="dialog">
+        <div class="dialog-heading"><div><p class="eyebrow">TEAM MEMORY</p><h2>Share completed work</h2></div><button class="close-button" id="close-share" type="button" aria-label="Close">×</button></div>
+        <p class="dialog-intro">This creates a durable, searchable update for the team. Your private chat stays private.</p>
+        <label>Title<input id="share-title" name="title" required maxlength="140" placeholder="e.g. Market sizing research completed" /></label>
+        <label>What did you learn or complete?<textarea id="share-description" name="description" required rows="5" placeholder="Include the takeaway, scope, and any useful handoff details."></textarea></label>
+        <div class="field-row"><label>Type<select id="share-type" name="type"><option value="task">Research or task</option><option value="feature">Feature</option><option value="fact">Research finding</option><option value="opinion">Opinion</option><option value="proposal">Proposal</option><option value="decision">Decision</option></select></label><label>Status<select id="share-status" name="status"><option value="complete">Complete</option><option value="in_progress">In progress</option><option value="superseded">Superseded</option></select></label></div>
+        <label>Files or links <span class="optional">optional · comma separated</span><input id="share-files" name="files" placeholder="market-sizing.xlsx, https://…" /></label>
+        <label>Endpoint <span class="optional">optional</span><input id="share-endpoint" name="endpoint" placeholder="/api/market-sizing" /></label>
+        <div class="dialog-actions"><p id="share-error" role="alert"></p><button class="cancel-button" id="cancel-share" type="button">Cancel</button><button class="submit-share" type="submit">Publish to team hub</button></div>
+      </form>
+    </dialog>
+    <template id="welcome-template"><article class="welcome"><span class="welcome-star">✦</span><h2>What are we working on?</h2><p>Relay checks your team’s shared memory before beginning new research, so the work already done is easy to reuse.</p><div class="prompt-row"><button type="button">Summarize the latest team research</button><button type="button">Find work on market sizing</button></div></article></template>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
