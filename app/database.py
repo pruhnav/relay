@@ -17,9 +17,14 @@ DEMO_TEAM_ID = "team-northstar"
 DEMO_TEAM_NAME = "Northstar Consulting"
 # These are intentionally demo-only credentials. Passwords are never returned from the API.
 DEMO_USERS = (
-    ("john", "John", "john@northstar.consulting", "Northstar-John-2026!"),
-    ("mary", "Mary", "mary@northstar.consulting", "Northstar-Mary-2026!"),
-    ("bob", "Bob", "bob@northstar.consulting", "Northstar-Bob-2026!"),
+    ("john", "John", "john@northstar.consulting", "Northstar-John-2026!", "admin"),
+    ("mary", "Mary", "mary@northstar.consulting", "Northstar-Mary-2026!", "member"),
+    ("bob", "Bob", "bob@northstar.consulting", "Northstar-Bob-2026!", "member"),
+)
+
+DEFAULT_TEAM_SYSTEM_PROMPT = (
+    "Help Northstar Consulting users with careful, useful research and delivery guidance. "
+    "Follow the team-managed tools, skills, documents, and templates when they are relevant."
 )
 
 
@@ -65,7 +70,8 @@ def initialize() -> None:
                 team_id TEXT NOT NULL REFERENCES teams(id),
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
-                password_hash TEXT
+                password_hash TEXT,
+                role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin', 'member'))
             );
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY,
@@ -129,11 +135,30 @@ def initialize() -> None:
                 expires_at TEXT NOT NULL,
                 revoked_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS agent_configurations (
+                team_id TEXT PRIMARY KEY REFERENCES teams(id),
+                system_prompt TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL REFERENCES users(id)
+            );
+            CREATE TABLE IF NOT EXISTS agent_configuration_entries (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES teams(id),
+                kind TEXT NOT NULL CHECK(kind IN ('tool', 'mcp_server', 'skill', 'markdown', 'prompt_template')),
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS context_team_updated ON context_items(team_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS activity_team_time ON activity_events(team_id, occurred_at DESC);
             CREATE INDEX IF NOT EXISTS messages_conversation_time ON messages(conversation_id, created_at);
+            CREATE INDEX IF NOT EXISTS messages_conversation_keyset ON messages(conversation_id, created_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS artifacts_context ON artifacts(context_item_id);
             CREATE INDEX IF NOT EXISTS auth_sessions_active ON authentication_sessions(id, expires_at, revoked_at);
+            CREATE INDEX IF NOT EXISTS agent_config_entries_team ON agent_configuration_entries(team_id, updated_at DESC);
             """
         )
 
@@ -151,16 +176,18 @@ def initialize() -> None:
         user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
         if "password_hash" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        if "role" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'")
 
         db.execute("INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)", (DEMO_TEAM_ID, DEMO_TEAM_NAME))
         db.execute("UPDATE teams SET name = ? WHERE id = ?", (DEMO_TEAM_NAME, DEMO_TEAM_ID))
         # Insert the canonical users before remapping foreign keys from the former demo IDs.
-        for user_id, name, email, password in DEMO_USERS:
+        for user_id, name, email, password, role in DEMO_USERS:
             db.execute(
-                """INSERT INTO users (id, team_id, name, email, password_hash) VALUES (?, ?, ?, ?, ?)
+                """INSERT INTO users (id, team_id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET team_id = excluded.team_id, name = excluded.name,
-                       email = excluded.email, password_hash = excluded.password_hash""",
-                (user_id, DEMO_TEAM_ID, name, email, hash_password(password)),
+                       email = excluded.email, password_hash = excluded.password_hash, role = excluded.role""",
+                (user_id, DEMO_TEAM_ID, name, email, hash_password(password), role),
             )
 
         # Migrate the earlier Person A / Person B local demo into the named team accounts.
@@ -181,6 +208,15 @@ def initialize() -> None:
         allowed_ids = tuple(user[0] for user in DEMO_USERS)
         markers = ", ".join("?" for _ in allowed_ids)
         db.execute(f"DELETE FROM users WHERE team_id = ? AND id NOT IN ({markers})", (DEMO_TEAM_ID, *allowed_ids))
+
+        # Team configuration is deliberately independent from a browser session. Every completion
+        # reads this shared record and its entries from SQLite, so an administrator's save affects
+        # John, Mary, Bob, and future team members on their next request.
+        db.execute(
+            """INSERT OR IGNORE INTO agent_configurations (team_id, system_prompt, updated_at, updated_by)
+               VALUES (?, ?, ?, ?)""",
+            (DEMO_TEAM_ID, DEFAULT_TEAM_SYSTEM_PROMPT, "2026-08-29T00:00:00Z", "john"),
+        )
 
         if db.execute("SELECT 1 FROM conversations WHERE team_id = ?", (DEMO_TEAM_ID,)).fetchone():
             db.execute("UPDATE activity_events SET summary = REPLACE(summary, 'Person A', 'John') WHERE team_id = ?", (DEMO_TEAM_ID,))
