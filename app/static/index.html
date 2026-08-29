@@ -6,7 +6,118 @@
     <meta name="theme-color" content="#151316" />
     <title>Relay — Team memory</title>
     <link rel="stylesheet" href="/styles.css" />
+    <style>
+      /* Keep the chat rail and configuration editors usable at any viewport height. */
+      .conversation-nav {
+        display: flex !important;
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        align-content: flex-start !important;
+        gap: 4px !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding: 0 2px 8px 0 !important;
+        scrollbar-gutter: stable;
+      }
+      .conversation { flex: 0 0 auto !important; min-height: 38px; padding: 9px 11px; line-height: 1.35; }
+      .conversation-nav .loading { margin: 6px 8px; }
+
+      .admin-dialog, .entry-dialog {
+        width: min(760px, calc(100% - 32px)) !important;
+        max-height: calc(100dvh - 32px) !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+      }
+      .entry-dialog { width: min(620px, calc(100% - 32px)) !important; }
+      .admin-dialog form, .entry-dialog form {
+        display: flex !important;
+        max-height: calc(100dvh - 32px) !important;
+        flex-direction: column !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+        padding: 28px !important;
+      }
+      .admin-dialog .dialog-heading, .entry-dialog .dialog-heading, .admin-dialog .dialog-intro, .entry-dialog .dialog-intro { flex: 0 0 auto; }
+      .admin-dialog .dialog-intro, .entry-dialog .dialog-intro { margin: 12px 0 20px !important; }
+      .admin-dialog label, .entry-dialog label:not(.toggle-label) {
+        display: grid !important;
+        gap: 7px;
+        margin: 16px 0 0 !important;
+        color: #d8d4d8;
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.35;
+      }
+      .admin-dialog input, .admin-dialog textarea, .admin-dialog select,
+      .entry-dialog input, .entry-dialog textarea, .entry-dialog select {
+        display: block;
+        width: 100% !important;
+        min-width: 0;
+        border: 1px solid #48434b;
+        border-radius: 7px;
+        background: #1b191c;
+        color: var(--ink);
+        font: inherit;
+        font-weight: 400;
+        line-height: 1.45;
+        margin: 0 !important;
+        padding: 9px 10px;
+        outline-color: #b6d75b;
+      }
+      .admin-dialog textarea, .entry-dialog textarea { resize: vertical; }
+      .admin-dialog #system-prompt { min-height: 150px; }
+      .admin-inline-actions { margin-top: 14px; min-height: 40px; }
+      .admin-inline-actions p { min-width: 0; margin: 0 auto 0 0; line-height: 1.4; }
+      .admin-section { flex: 0 0 auto; }
+      .section-heading { gap: 18px; align-items: flex-start; }
+      .admin-library .section-heading { align-items: center; }
+      .admin-library .secondary-button { flex: 0 0 auto; white-space: nowrap; }
+      .admin-tabs { flex: 0 0 auto; margin: 0; padding: 16px 0 12px; }
+      .config-entry-list { padding-bottom: 2px; }
+      .config-entry { align-items: flex-start; }
+      .config-entry > div:first-child { min-width: 0; }
+      .config-entry-actions { flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+
+      .resource-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      .entry-dialog .resource-form-grid label { margin: 0 !important; }
+      .resource-form-wide { grid-column: 1 / -1; }
+      .entry-dialog .toggle-label { margin: 18px 0 0 !important; }
+      .entry-dialog .dialog-actions { flex: 0 0 auto; margin-top: 22px; }
+
+      @media (max-width: 700px) {
+        .admin-dialog, .entry-dialog { width: calc(100% - 16px) !important; max-height: calc(100dvh - 16px) !important; }
+        .admin-dialog form, .entry-dialog form { max-height: calc(100dvh - 16px) !important; padding: 22px 18px !important; }
+        .section-heading, .admin-library .section-heading { align-items: flex-start !important; flex-direction: column; gap: 10px; }
+        .resource-form-grid { grid-template-columns: 1fr; gap: 14px; }
+        .resource-form-wide { grid-column: auto; }
+        .admin-inline-actions, .entry-dialog .dialog-actions { align-items: stretch; flex-direction: column; }
+        .admin-inline-actions p { margin: 0; }
+        .admin-inline-actions .submit-share, .entry-dialog .submit-share { width: 100%; }
+        .entry-dialog .dialog-actions .cancel-button { order: 2; }
+        .config-entry-actions { justify-content: flex-start; }
+      }
+    </style>
     <style>.app-notice{position:fixed;z-index:20;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid #6e5159;border-radius:9px;background:#38252a;color:#ffe0e3;font-size:12px;box-shadow:0 12px 30px #0008}.app-notice button{border:0;border-radius:6px;padding:5px 8px;background:#f3b5c6;color:#34151d;font:inherit;font-weight:700;cursor:pointer}.pending .message-body{display:flex;gap:8px;align-items:center;color:#bdb8bd}.dots{display:inline-flex;gap:4px}.dots i{width:5px;height:5px;background:#d9f96e;border-radius:50%;animation:pulse 1s infinite alternate}.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}@keyframes pulse{from{opacity:.2;transform:translateY(1px)}to{opacity:1;transform:translateY(-2px)}}button[aria-busy="true"]{cursor:wait;opacity:.65}</style>
+    <style>.admin-nav{border:1px solid #4d5d37;background:#262f1d;color:#d9f96e;border-radius:8px;padding:9px 10px;margin:0 0 12px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;text-align:left}.admin-dialog{max-width:760px}.admin-dialog form{padding:22px}.admin-section{border-top:1px solid #302d32;padding-top:18px;margin-top:18px}.section-heading{display:flex;justify-content:space-between}.section-heading h3{margin:0;font-size:14px}.team-wide-chip,.config-kind{background:#35402a;color:#d9f96e;border-radius:12px;padding:4px 7px;font-size:10px;font-weight:700}.admin-inline-actions{display:flex;align-items:center;gap:12px}.admin-inline-actions p{margin-right:auto;color:#a9a4ab;font-size:11px}.secondary-button,.danger-button{border:1px solid #4a454e;background:transparent;color:#f7f5f2;border-radius:7px;padding:7px 9px;font:inherit;font-size:11px;cursor:pointer}.admin-tabs{display:flex;gap:6px;overflow:auto;padding:14px 0}.config-entry-list{display:grid;gap:8px}.config-entry{border:1px solid #403b43;border-radius:9px;padding:12px;display:flex;justify-content:space-between;gap:12px}.config-entry.disabled{opacity:.55}.config-entry h4{margin:7px 0 3px;font-size:13px}.config-entry p{margin:0;color:#a9a4ab;font-size:11px;line-height:1.45}.config-entry-actions{display:flex;align-items:flex-start;gap:4px}.config-entry-actions .text-button{margin:0;padding:3px}.danger-button{color:#ffb5bd;border:0;padding:3px}.entry-dialog{max-width:620px}.toggle-label{display:flex!important;gap:9px;align-items:flex-start}.toggle-label input{width:auto!important;margin:3px 0!important}.toggle-label small{display:block;color:#a9a4ab;font-weight:400;margin-top:3px}@media(max-width:700px){.admin-dialog,.entry-dialog{width:calc(100% - 16px)}.config-entry{display:block}.config-entry-actions{margin-top:10px}}.app-shell,.chat-panel,.hub-panel{min-height:0}.conversation-nav{min-height:0;flex:1}.messages{min-height:0;overscroll-behavior:contain}.message-list{display:flex;flex-direction:column;gap:22px;min-height:100%}.history-control{align-self:center;flex:none}.history-control button{border:1px solid #4a454e;border-radius:7px;padding:7px 10px;background:#242126;color:#f7f5f2;font:inherit;font-size:11px;cursor:pointer}.history-control span{color:#a9a4ab;font-size:11px;margin-right:8px}.identity-error-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 24% 24%,#29233a 0,#151316 44%)}.identity-error-card{width:min(480px,100%);padding:30px;border:1px solid #302d32;border-radius:14px;background:#211e22;box-shadow:0 25px 80px #0008}.identity-error-card h1{font-size:28px;letter-spacing:-.8px;margin:0}.identity-error-card>p:not(.eyebrow){color:#a9a4ab;line-height:1.55;margin:13px 0 22px}.identity-error-actions{display:flex;align-items:center;gap:10px}.identity-error-actions .login-button{margin:0;width:auto}.identity-error-actions .cancel-button{margin-left:auto}@media(max-width:700px){.app-shell{height:100dvh;min-height:0;display:block}.chat-panel{height:100%;min-height:0}}</style>
+    <style>
+      .rail { min-height: 0; }
+      .conversation-nav { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; align-content: initial; gap: 4px; overflow-x: hidden; overflow-y: auto; padding: 0 2px; scrollbar-gutter: stable; }
+      .conversation { flex: 0 0 auto; min-height: 38px; line-height: 18px; }
+      .rail-foot { flex: 0 0 auto; }
+      .admin-dialog, .entry-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid #49434e; border-radius: 14px; background: #242126; color: #f7f5f2; box-shadow: 0 25px 80px #000b; }
+      .entry-dialog { width: min(620px, calc(100vw - 32px)); }
+      .admin-dialog::backdrop, .entry-dialog::backdrop { background: #08070ab8; backdrop-filter: blur(2px); }
+      .admin-dialog form, .entry-dialog form { display: block; max-height: calc(100dvh - 32px); overflow-y: auto; padding: 28px; }
+      .admin-dialog label, .entry-dialog label { display: grid; gap: 7px; margin: 16px 0; color: #d8d4d8; font-size: 12px; font-weight: 650; }
+      .admin-dialog input, .admin-dialog textarea, .admin-dialog select, .entry-dialog input, .entry-dialog textarea, .entry-dialog select { display: block; width: 100%; min-width: 0; margin: 0; padding: 10px; border: 1px solid #48434b; border-radius: 8px; background: #1b191c; color: #f7f5f2; font: inherit; line-height: 1.45; outline-color: #b6d75b; }
+      .admin-dialog textarea, .entry-dialog textarea { resize: vertical; min-height: 96px; }
+      .admin-dialog .toggle-label, .entry-dialog .toggle-label { display: flex; align-items: flex-start; gap: 10px; }
+      .admin-dialog .toggle-label input, .entry-dialog .toggle-label input { width: auto; margin-top: 3px; }
+      .admin-dialog .dialog-actions, .entry-dialog .dialog-actions { position: sticky; bottom: -28px; margin: 22px -28px -28px; padding: 16px 28px; background: #242126; border-top: 1px solid #302d32; }
+      @media (max-width: 700px) { .admin-dialog, .entry-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); } .admin-dialog form, .entry-dialog form { max-height: calc(100dvh - 16px); padding: 20px; } .admin-dialog .dialog-actions, .entry-dialog .dialog-actions { bottom: -20px; margin: 22px -20px -20px; padding: 14px 20px; } }
+    </style>
   </head>
   <body>
     <main class="auth-screen" id="auth-screen" aria-labelledby="login-title">
@@ -30,11 +141,21 @@
       </section>
     </main>
 
+    <section class="identity-error-screen" id="identity-error-screen" hidden aria-labelledby="identity-error-title">
+      <div class="identity-error-card">
+        <p class="eyebrow">ACCOUNT VERIFICATION</p>
+        <h1 id="identity-error-title">We couldn’t verify your access</h1>
+        <p id="identity-error-message" role="alert"></p>
+        <div class="identity-error-actions"><button class="login-button" id="retry-identity" type="button">Retry verification</button><button class="cancel-button" id="return-login" type="button">Sign in again</button></div>
+      </div>
+    </section>
+
     <div class="app-shell" id="app-shell" hidden>
       <aside class="rail" aria-label="Conversations">
         <div class="brand"><span class="brand-mark">r</span><span>relay</span></div>
         <button class="new-chat" id="new-chat" type="button"><span>+</span> New conversation</button>
         <nav class="conversation-nav" id="conversation-list" aria-label="Private conversations"></nav>
+        <button class="admin-nav" id="open-admin" type="button" hidden><span>⚙</span> Agent configuration</button>
         <div class="rail-foot">
           <div class="presence"><span class="presence-dot"></span><span>Team memory connected</span></div>
           <div class="person-button" aria-label="Signed in user">
@@ -58,7 +179,10 @@
           <button class="text-button" id="catchup-dismiss" type="button">Dismiss</button>
         </section>
 
-        <section class="messages" id="messages" aria-live="polite"></section>
+        <section class="messages" id="messages" aria-live="polite">
+          <div class="history-control" id="history-control" hidden aria-live="polite"></div>
+          <div class="message-list" id="message-list"></div>
+        </section>
 
         <section class="composer-wrap">
           <div class="share-nudge" id="share-nudge" hidden>
@@ -98,6 +222,46 @@
         <label>Files or links <span class="optional">optional · comma separated</span><input id="share-files" name="files" placeholder="market-sizing.xlsx, https://…" /></label>
         <label>Endpoint <span class="optional">optional</span><input id="share-endpoint" name="endpoint" placeholder="/api/market-sizing" /></label>
         <div class="dialog-actions"><p id="share-error" role="alert"></p><button class="cancel-button" id="cancel-share" type="button">Cancel</button><button class="submit-share" type="submit">Publish to team hub</button></div>
+      </form>
+    </dialog>
+    <dialog class="admin-dialog" id="admin-dialog" aria-labelledby="admin-title">
+      <form id="admin-form" method="dialog">
+        <div class="dialog-heading">
+          <div><p class="eyebrow">ADMINISTRATION</p><h2 id="admin-title">Configure Relay</h2></div>
+          <button class="close-button" id="close-admin" type="button" aria-label="Close configuration">×</button>
+        </div>
+        <p class="dialog-intro">These team-wide instructions and resources are loaded for every member’s next Relay response.</p>
+        <section class="admin-section" aria-labelledby="policy-title">
+          <div class="section-heading"><div><p class="eyebrow">TEAM POLICY</p><h3 id="policy-title">Base instructions</h3></div><span class="team-wide-chip">All users</span></div>
+          <label for="system-prompt">System prompt<textarea id="system-prompt" rows="6" maxlength="12000" placeholder="Set the shared operating instructions for Relay."></textarea></label>
+          <div class="admin-inline-actions"><p id="system-prompt-status" role="status" aria-live="polite"></p><button class="submit-share" id="save-system-prompt" type="button">Save instructions</button></div>
+        </section>
+        <section class="admin-section admin-library" aria-labelledby="library-title">
+          <div class="section-heading"><div><p class="eyebrow">CONFIGURATION LIBRARY</p><h3 id="library-title">Capabilities &amp; context</h3></div><button class="secondary-button" id="new-config-entry" type="button">+ Add resource</button></div>
+          <div class="admin-tabs" id="admin-tabs" aria-label="Filter configuration resources">
+            <button class="filter active" data-admin-filter="all" type="button">All</button>
+            <button class="filter" data-admin-filter="tool" type="button">Tools</button>
+            <button class="filter" data-admin-filter="mcp_server" type="button">MCP servers</button>
+            <button class="filter" data-admin-filter="skill" type="button">Skills</button>
+            <button class="filter" data-admin-filter="markdown" type="button">Markdown</button>
+            <button class="filter" data-admin-filter="prompt_template" type="button">Templates</button>
+          </div>
+          <div class="config-entry-list" id="config-entry-list" aria-live="polite"></div>
+        </section>
+      </form>
+    </dialog>
+    <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title">
+      <form id="entry-form" method="dialog">
+        <div class="dialog-heading"><div><p class="eyebrow">TEAM CONFIGURATION</p><h2 id="entry-title">Add resource</h2></div><button class="close-button" id="close-entry" type="button" aria-label="Close resource editor">×</button></div>
+        <p class="dialog-intro">Enabled resources become structured context for every team member’s next response.</p>
+        <div class="resource-form-grid">
+          <label for="entry-kind">Resource type<select id="entry-kind" required><option value="tool">Tool</option><option value="mcp_server">MCP server</option><option value="skill">Skill</option><option value="markdown">Markdown file</option><option value="prompt_template">Prompt template</option></select></label>
+          <label for="entry-name">Name<input id="entry-name" required maxlength="120" placeholder="e.g. Research briefing template" /></label>
+          <label class="resource-form-wide" for="entry-description">Description <span class="optional">optional</span><textarea id="entry-description" rows="3" maxlength="1000" placeholder="What should Relay use this for?"></textarea></label>
+          <label class="resource-form-wide" for="entry-content">Configuration content<textarea id="entry-content" required rows="9" maxlength="12000" placeholder="Add the tool definition, server configuration, skill instructions, Markdown, or prompt template."></textarea></label>
+        </div>
+        <label class="toggle-label" for="entry-enabled"><input id="entry-enabled" type="checkbox" checked /> <span><strong>Enabled for the team</strong><small>Include this resource in every user’s next response.</small></span></label>
+        <div class="dialog-actions"><p id="entry-error" role="alert"></p><button class="cancel-button" id="cancel-entry" type="button">Cancel</button><button class="submit-share" id="save-entry" type="submit">Add resource</button></div>
       </form>
     </dialog>
     <template id="welcome-template"><article class="welcome"><span class="welcome-star">✦</span><h2>What are we working on?</h2><p>Relay checks your team’s shared memory before beginning new research, so the work already done is easy to reuse.</p><div class="prompt-row"><button type="button" data-prompt="Summarize the latest team research">Summarize the latest team research</button><button type="button" data-prompt="Find work on market sizing">Find work on market sizing</button></div></article></template>
