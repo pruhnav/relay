@@ -117,6 +117,30 @@
       .admin-dialog .toggle-label input, .entry-dialog .toggle-label input { width: auto; margin-top: 3px; }
       .admin-dialog .dialog-actions, .entry-dialog .dialog-actions { position: sticky; bottom: -28px; margin: 22px -28px -28px; padding: 16px 28px; background: #242126; border-top: 1px solid #302d32; }
       @media (max-width: 700px) { .admin-dialog, .entry-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); } .admin-dialog form, .entry-dialog form { max-height: calc(100dvh - 16px); padding: 20px; } .admin-dialog .dialog-actions, .entry-dialog .dialog-actions { bottom: -20px; margin: 22px -20px -20px; padding: 14px 20px; } }
+      /* Typed, executable team capability controls. */
+      .entry-fields { display: grid; gap: 12px; margin-top: 16px; }
+      .entry-fields[hidden] { display: none; }
+      .entry-fields label { margin: 0; }
+      .entry-fields .field-row { margin: 0; }
+      .document-edit { display: none; }
+      .entry-dialog.is-editing-document .document-upload { display: none; }
+      .entry-dialog.is-editing-document .document-edit { display: grid; }
+      .field-help { margin: -2px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+      .config-entry .entry-summary { min-width: 0; }
+      .config-entry .entry-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; color: var(--muted); font-size: 10px; }
+      .config-entry .audit-status { border: 1px solid #4a454e; border-radius: 999px; padding: 2px 6px; }
+      .config-entry .audit-status.valid, .execution-state.succeeded { color: var(--accent); border-color: #536334; }
+      .config-entry .audit-status.invalid, .execution-state.failed, .execution-state.rejected { color: #ffb5bd; border-color: #71444c; }
+      .message-list { min-height: 0 !important; width: 100%; }
+      .message > div { min-width: 0; }
+      .message-body { display: block; max-width: 100%; overflow: visible; overflow-wrap: anywhere; word-break: break-word; }
+      .execution-list { position: static; display: grid; flex: 0 0 auto; gap: 8px; max-width: 780px; margin: 0 auto 6px; width: 100%; isolation: isolate; }
+      .execution-card { position: static; z-index: auto; border: 1px solid #46404a; border-left: 3px solid var(--violet); border-radius: 8px; background: #211e22; padding: 10px 12px; font-size: 11px; }
+      .execution-card header { display: flex; align-items: center; gap: 7px; color: #d8d4d8; font-weight: 650; }
+      .execution-card p { color: var(--muted); margin: 5px 0 0; line-height: 1.45; white-space: pre-wrap; }
+      .execution-card .dialog-actions { margin-top: 9px; }
+      .execution-card button { font-size: 11px; }
+      .execution-state { margin-left: auto; border: 1px solid #4a454e; border-radius: 999px; padding: 2px 6px; color: var(--muted); text-transform: capitalize; }
     </style>
   </head>
   <body>
@@ -182,6 +206,7 @@
         <section class="messages" id="messages" aria-live="polite">
           <div class="history-control" id="history-control" hidden aria-live="polite"></div>
           <div class="message-list" id="message-list"></div>
+          <section class="execution-list" id="execution-list" aria-live="polite" aria-label="Capability activity"></section>
         </section>
 
         <section class="composer-wrap">
@@ -239,8 +264,8 @@
           <div class="section-heading"><div><p class="eyebrow">CONFIGURATION LIBRARY</p><h3 id="library-title">Capabilities &amp; context</h3></div><button class="secondary-button" id="new-config-entry" type="button">+ Add resource</button></div>
           <div class="admin-tabs" id="admin-tabs" aria-label="Filter configuration resources">
             <button class="filter active" data-admin-filter="all" type="button">All</button>
-            <button class="filter" data-admin-filter="tool" type="button">Tools</button>
-            <button class="filter" data-admin-filter="mcp_server" type="button">MCP servers</button>
+            <button class="filter" data-admin-filter="function_tool" type="button">Tools</button>
+            <button class="filter" data-admin-filter="mcp" type="button">MCP servers</button>
             <button class="filter" data-admin-filter="skill" type="button">Skills</button>
             <button class="filter" data-admin-filter="markdown" type="button">Markdown</button>
             <button class="filter" data-admin-filter="prompt_template" type="button">Templates</button>
@@ -252,14 +277,37 @@
     <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title">
       <form id="entry-form" method="dialog">
         <div class="dialog-heading"><div><p class="eyebrow">TEAM CONFIGURATION</p><h2 id="entry-title">Add resource</h2></div><button class="close-button" id="close-entry" type="button" aria-label="Close resource editor">×</button></div>
-        <p class="dialog-intro">Enabled resources become structured context for every team member’s next response.</p>
-        <div class="resource-form-grid">
-          <label for="entry-kind">Resource type<select id="entry-kind" required><option value="tool">Tool</option><option value="mcp_server">MCP server</option><option value="skill">Skill</option><option value="markdown">Markdown file</option><option value="prompt_template">Prompt template</option></select></label>
-          <label for="entry-name">Name<input id="entry-name" required maxlength="120" placeholder="e.g. Research briefing template" /></label>
-          <label class="resource-form-wide" for="entry-description">Description <span class="optional">optional</span><textarea id="entry-description" rows="3" maxlength="1000" placeholder="What should Relay use this for?"></textarea></label>
-          <label class="resource-form-wide" for="entry-content">Configuration content<textarea id="entry-content" required rows="9" maxlength="12000" placeholder="Add the tool definition, server configuration, skill instructions, Markdown, or prompt template."></textarea></label>
-        </div>
-        <label class="toggle-label" for="entry-enabled"><input id="entry-enabled" type="checkbox" checked /> <span><strong>Enabled for the team</strong><small>Include this resource in every user’s next response.</small></span></label>
+        <p class="dialog-intro" id="entry-intro">Choose a capability type. Enabled capability configuration applies to every team member’s next response.</p>
+        <label for="entry-kind">Capability type
+          <select id="entry-kind" required>
+            <option value="function_tool">HTTP function tool</option><option value="mcp">Remote MCP server</option><option value="skill">SKILL.md bundle</option><option value="markdown">Markdown reference</option><option value="prompt_template">Prompt template</option>
+          </select>
+        </label>
+        <section class="entry-fields" data-entry-fields="document">
+          <label for="document-title">Title<input id="document-title" maxlength="120" placeholder="e.g. Research playbook" /></label>
+          <label for="document-file" class="document-upload">Upload <span id="document-file-hint">a UTF-8 .md file (48 KiB maximum)</span><input id="document-file" type="file" accept=".md,text/markdown,text/plain" /></label>
+          <label for="document-content" class="document-edit">Markdown content<textarea id="document-content" rows="10" maxlength="49152" placeholder="Edit the stored Markdown reference."></textarea></label>
+        </section>
+        <section class="entry-fields" data-entry-fields="prompt_template" hidden>
+          <label for="template-name">Template name<input id="template-name" maxlength="120" placeholder="e.g. Research response format" /></label>
+          <label for="template-content">Prompt template<textarea id="template-content" rows="10" maxlength="12000" placeholder="Instructions that Relay should follow for every team member."></textarea></label>
+        </section>
+        <section class="entry-fields" data-entry-fields="function_tool" hidden>
+          <label for="tool-name">Function name<input id="tool-name" maxlength="120" placeholder="e.g. company_research" /></label>
+          <label for="tool-label">Display label<input id="tool-label" maxlength="120" placeholder="e.g. Company research" /></label>
+          <label for="tool-description">When should Relay use it?<textarea id="tool-description" rows="3" maxlength="1000" placeholder="Describe what this function does and when to call it."></textarea></label>
+          <div class="field-row"><label for="tool-url">HTTPS endpoint URL<input id="tool-url" type="url" placeholder="https://api.example.com/research" /></label><label for="tool-method">Method<select id="tool-method"><option value="POST">POST</option><option value="GET">GET</option></select></label></div>
+          <label for="tool-schema">Input JSON Schema<textarea id="tool-schema" rows="8" spellcheck="false" placeholder='{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}'></textarea></label>
+          <label for="tool-headers">Environment header map <span class="optional">optional · JSON only, values must be server-approved environment references</span><textarea id="tool-headers" rows="4" spellcheck="false" placeholder='{"X-API-Key":"RESEARCH_API_KEY"}'></textarea></label>
+        </section>
+        <section class="entry-fields" data-entry-fields="mcp" hidden>
+          <label for="mcp-label">Provider server label <span class="optional">letters, numbers, _ and - only; must start with a letter</span><input id="mcp-label" maxlength="120" pattern="[A-Za-z][A-Za-z0-9_-]*" placeholder="e.g. research_mcp" /></label>
+          <label for="mcp-url">HTTPS server URL<input id="mcp-url" type="url" placeholder="https://mcp.example.com" /></label>
+          <label for="mcp-tools">Allowed tools <span class="optional">one tool name per line or comma-separated</span><textarea id="mcp-tools" rows="5" placeholder="search_company\nget_report"></textarea></label>
+          <label for="mcp-approval">Autonomy<select id="mcp-approval"><option value="always">Ask the chat owner before every call</option><option value="never">Run allowed calls automatically</option></select></label>
+          <p class="field-help">Relay will validate the server before saving. The allowlist is enforced again when Relay runs a tool.</p>
+        </section>
+        <label class="toggle-label" for="entry-enabled"><input id="entry-enabled" type="checkbox" checked /> <span><strong>Enabled for the team</strong><small>Apply this capability to every user’s next Relay response.</small></span></label>
         <div class="dialog-actions"><p id="entry-error" role="alert"></p><button class="cancel-button" id="cancel-entry" type="button">Cancel</button><button class="submit-share" id="save-entry" type="submit">Add resource</button></div>
       </form>
     </dialog>
