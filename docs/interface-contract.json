@@ -1,12 +1,13 @@
 {
-  "version": "2.0.0",
-  "title": "Shared Team AI Agent — Shared Context API",
+  "version": "2.1.0",
+  "title": "Shared Team AI Agent — Shared Context and Executable Admin Capabilities API",
   "assumptions": [
     "Northstar Consulting has three seeded members: John, Mary, and Bob. John is the only administrator; Mary and Bob are regular members.",
     "Canonical shared-context fixture data lives in app/data/data.json and is loaded into SQLite (team_memory.db) on first startup when shared_context_records is empty.",
     "Shared team context uses a single SharedContextRecord model with type chat or artifact. Tasks, decisions, blockers, and work status are inferred by the agent at retrieval time, not stored as separate entities or status fields.",
     "The browser must treat the server's explicit capability flag as authoritative for admin-panel visibility.",
-    "Agent configuration is team-scoped, stored in SQLite, and applied on every chat completion."
+    "Agent configuration is team-scoped, stored in SQLite, and applied on every chat completion.",
+    "Administrators manage Markdown and SKILL.md references, prompt templates, HTTP function tools, and validated remote MCP servers. These capabilities are independent of the canonical shared-memory seed data."
   ],
   "resources": {
     "User": {"id": "string", "team_id": "string", "name": "John|Mary|Bob", "email": "string", "role": "admin|member"},
@@ -29,8 +30,13 @@
       "summary": "string",
       "occurred_at": "ISO-8601"
     },
-    "AgentConfiguration": {"team_id": "string", "system_prompt": "string", "updated_at": "ISO-8601", "updated_by": "User"},
+    "AgentConfiguration": {"team_id": "string", "system_prompt": "string", "revision": "positive integer", "updated_at": "ISO-8601", "updated_by": "User"},
     "AgentConfigurationEntry": {"id": "string", "team_id": "string", "kind": "tool|mcp_server|skill|markdown|prompt_template", "name": "string", "description": "string", "content": "string", "enabled": "boolean", "created_at": "ISO-8601", "updated_at": "ISO-8601"},
+    "MarkdownDocument": {"id": "string", "kind": "markdown|skill", "filename": "safe .md basename|SKILL.md", "title": "string", "content": "string", "enabled": "boolean"},
+    "PromptTemplate": {"id": "string", "name": "string", "content": "string", "enabled": "boolean"},
+    "HttpFunctionTool": {"id": "string", "name": "provider-safe identifier", "endpoint_url": "public HTTPS URL", "method": "GET|POST", "input_schema": "JSON Schema", "enabled": "boolean"},
+    "RemoteMcpServer": {"id": "string", "label": "provider-safe identifier", "server_url": "public HTTPS URL", "allowed_tools": "string[]", "approval_policy": "never|always", "enabled": "boolean"},
+    "AgentToolExecution": {"id": "string", "conversation_id": "string", "capability_type": "http_function|mcp", "tool_name": "string", "state": "requested|awaiting_approval|running|succeeded|failed|rejected"},
     "MessagePage": {"messages": "Message[] in ascending display order", "next_before": "opaque cursor|null", "has_more": "boolean"}
   },
   "authorization": {
@@ -47,11 +53,17 @@
     {"method": "GET", "path": "/api/context/{record_id}", "auth": "session", "success": {"200": {"record": "SharedContextRecord"}}, "errors": ["401", "404"]},
     {"method": "POST", "path": "/api/sessions", "auth": "session", "success": {"200": {"previous_last_seen_at": "ISO-8601|null", "events": "ActivityEvent[]", "records": "SharedContextRecord[]", "server_time": "ISO-8601"}}, "errors": ["401"]},
     {"method": "GET", "path": "/api/activity", "auth": "session", "params": {"since": "optional ISO-8601 timestamp"}, "success": {"200": {"events": "ActivityEvent[]", "server_time": "ISO-8601"}}, "errors": ["400", "401"]},
-    {"method": "GET", "path": "/api/admin/configuration", "auth": "admin session", "success": {"200": {"configuration": "AgentConfiguration", "entries": "AgentConfigurationEntry[]"}}, "errors": ["401", "403"]},
-    {"method": "PUT", "path": "/api/admin/configuration", "auth": "admin session", "request": {"system_prompt": "string, 1-12000 characters"}, "success": {"200": {"configuration": "AgentConfiguration"}}, "errors": ["400", "401", "403"]},
+    {"method": "GET", "path": "/api/admin/configuration", "auth": "admin session", "success": {"200": {"configuration": "AgentConfiguration", "documents": "MarkdownDocument[]", "prompt_templates": "PromptTemplate[]", "function_tools": "HttpFunctionTool[]", "mcp_servers": "RemoteMcpServer[]"}}, "errors": ["401", "403"]},
+    {"method": "PUT", "path": "/api/admin/configuration", "auth": "admin session", "request": {"system_prompt": "string, 1-12000 characters", "expected_revision": "optional positive integer"}, "success": {"200": {"configuration": "AgentConfiguration"}}, "errors": ["400", "401", "403", "409"]},
     {"method": "POST", "path": "/api/admin/configuration/entries", "auth": "admin session", "request": {"kind": "tool|mcp_server|skill|markdown|prompt_template", "name": "string", "description": "string", "content": "string", "enabled": "boolean"}, "success": {"201": {"entry": "AgentConfigurationEntry"}}, "errors": ["400", "401", "403"]},
     {"method": "PATCH", "path": "/api/admin/configuration/entries/{entry_id}", "auth": "admin session", "success": {"200": {"entry": "AgentConfigurationEntry"}}, "errors": ["400", "401", "403", "404"]},
     {"method": "DELETE", "path": "/api/admin/configuration/entries/{entry_id}", "auth": "admin session", "success": {"204": null}, "errors": ["401", "403", "404"]},
+    {"method": "POST|PATCH|DELETE", "path": "/api/admin/configuration/documents[/ {document_id}]", "auth": "admin session", "success": {"201|200|204": "MarkdownDocument|empty"}},
+    {"method": "POST|PATCH|DELETE", "path": "/api/admin/configuration/prompt-templates[/ {template_id}]", "auth": "admin session", "success": {"201|200|204": "PromptTemplate|empty"}},
+    {"method": "POST|PATCH|DELETE", "path": "/api/admin/configuration/function-tools[/ {tool_id}]", "auth": "admin session", "success": {"201|200|204": "HttpFunctionTool|empty"}},
+    {"method": "POST|PATCH|DELETE", "path": "/api/admin/configuration/mcp-servers[/ {server_id}]", "auth": "admin session", "success": {"201|200|204": "RemoteMcpServer|empty"}},
+    {"method": "GET", "path": "/api/conversations/{conversation_id}/tool-executions", "auth": "session and owner-only conversation", "success": {"200": {"executions": "AgentToolExecution[]"}}},
+    {"method": "POST", "path": "/api/tool-executions/{execution_id}/approve", "auth": "session and owner-only conversation", "request": {"approved": "boolean"}, "success": {"200": {"turn": "AgentTurn"}}},
     {"method": "GET", "path": "/api/conversations/{conversation_id}/messages", "auth": "session and owner-only conversation", "params": {"limit": "optional integer 1-100; default 50", "before": "optional opaque cursor"}, "success": {"200": "MessagePage"}, "errors": ["400", "401", "404"]},
     {"method": "POST", "path": "/api/conversations/{conversation_id}/messages", "auth": "session and owner-only conversation", "request": {"content": "string"}, "success": {"201": {"user_message": "Message", "assistant_message": "Message", "matches": "SharedContextRecord[]", "related_records": "SharedContextRecord[]", "duplicate_resolution": {"detected": "boolean", "record_ids": "string[]", "recommended_next_step": "string|null"}, "share_suggestion": "object|null"}}, "errors": ["401", "404"]}
   ],
@@ -61,6 +73,7 @@
     "conflict_handling": "Conflicts are represented as artifact records with artifact_type=conflict and source_record_ids pointing to the disagreeing chat records.",
     "retrieval": "Message completion performs keyword/synonym search over record content and injects matched records into the LLM prompt.",
     "configuration_propagation": "Team agent configuration is loaded fresh from SQLite for every completion.",
-    "long_conversation_loading": "Messages are paginated newest-first with opaque keyset cursors."
+    "long_conversation_loading": "Messages are paginated newest-first with opaque keyset cursors.",
+    "capability_execution": "Enabled HTTP functions and validated MCP servers are supplied to live agent requests. Every call is bounded, redacted, persisted, and visible only to the owner of the private conversation."
   }
 }
