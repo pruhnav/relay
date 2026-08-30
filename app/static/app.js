@@ -144,7 +144,7 @@
   }
   function messageMarkup(message) {
     const assistant = message.role === 'assistant'; const author = assistant ? { name: 'Relay' } : state.user;
-    return `<article class="message"><span class="avatar ${assistant ? 'assistant-avatar' : ''}">${assistant ? 'r' : initials(author.name)}</span><div><div class="message-meta">${esc(author.name)}<time>${time(message.created_at)}</time></div><div class="message-body">${esc(message.content)}</div></div></article>`;
+    return `<article class="message" data-message-id="${esc(message.id)}"><span class="avatar ${assistant ? 'assistant-avatar' : ''}">${assistant ? 'r' : initials(author.name)}</span><div><div class="message-meta">${esc(author.name)}<time>${time(message.created_at)}</time></div><div class="message-body">${esc(message.content)}</div></div></article>`;
   }
   function messageList() { return $('message-list'); }
   function welcome() { messageList().innerHTML = $('welcome-template').innerHTML; }
@@ -233,16 +233,37 @@
     return boundedText(lines.length ? lines.join('\n') : 'The capability returned an empty object.');
   }
   function renderExecutions() {
-    const list = $('execution-list');
     const executions = Array.isArray(state.executions) ? state.executions : [];
-    list.innerHTML = executions.length ? executions.map((execution) => {
+    const messageListElement = messageList();
+    const parkedList = $('execution-list');
+    messageListElement.querySelectorAll('.execution-inline').forEach((element) => element.remove());
+    parkedList.replaceChildren();
+    const groups = new Map();
+    executions.forEach((execution) => {
+      const messageId = execution.assistant_message_id || '__pending__';
+      if (!groups.has(messageId)) groups.set(messageId, []);
+      groups.get(messageId).push(execution);
+    });
+    groups.forEach((group, messageId) => {
+      const cards = group.map((execution) => {
       try {
       const stateLabel = esc((execution.state || 'requested').replace('_', ' ')); const detail = execution.error || execution.result || (execution.state === 'awaiting_approval' ? 'Relay is waiting for your approval before this external call.' : 'Relay recorded this capability call.');
       const approval = execution.state === 'awaiting_approval' ? `<div class="dialog-actions"><button class="cancel-button" type="button" data-execution-approval="false" data-execution-id="${esc(execution.id)}">Reject</button><button class="submit-share" type="button" data-execution-approval="true" data-execution-id="${esc(execution.id)}">Approve and continue</button></div>` : '';
       const summary = execution.error ? 'View error details' : execution.state === 'awaiting_approval' ? 'Review request details' : 'View result';
       return `<article class="execution-card"><header><span>${esc(execution.capability_type === 'mcp' ? 'MCP' : 'HTTP tool')}</span><strong>${esc(execution.tool_name)}</strong><span class="execution-state ${esc(execution.state)}">${stateLabel}</span></header><details><summary>${summary}</summary><p>${esc(readableExecutionResult(detail))}</p></details>${approval}</article>`;
       } catch { return '<article class="execution-card"><header><span>Capability activity</span><span class="execution-state">recorded</span></header><p>The response is available, but this activity detail could not be displayed.</p></article>'; }
-    }).join('') : '';
+      }).join('');
+      const anchor = messageId === '__pending__'
+        ? messageListElement.querySelector('.message:last-of-type')
+        : [...messageListElement.querySelectorAll('.message')].find((message) => message.dataset.messageId === messageId);
+      // Executions for unloaded older pages stay hidden until their associated message is loaded.
+      if (!anchor) return;
+      const wrapper = document.createElement('section');
+      wrapper.className = 'execution-list execution-inline';
+      wrapper.setAttribute('aria-label', 'Capability activity');
+      wrapper.innerHTML = cards;
+      anchor.insertAdjacentElement('afterend', wrapper);
+    });
   }
   function renderExecutionsSafely() { try { renderExecutions(); } catch { const list = $('execution-list'); if (list) list.textContent = 'Capability activity is available after refresh.'; } }
   async function loadExecutions() {

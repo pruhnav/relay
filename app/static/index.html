@@ -134,7 +134,8 @@
       .message-list { min-height: 0 !important; width: 100%; }
       .message > div { min-width: 0; }
       .message-body { display: block; max-width: 100%; overflow: visible; overflow-wrap: anywhere; word-break: break-word; }
-      .execution-list { position: relative; clear: both; display: grid; flex: 0 0 auto; gap: 5px; max-width: 780px; margin: 4px auto 12px; width: 100%; isolation: isolate; }
+      .execution-list { position: relative; clear: both; display: grid; flex: 0 0 auto; gap: 5px; max-width: 740px; margin: -12px 0 12px 39px; width: calc(100% - 39px); isolation: isolate; }
+      #execution-list:empty { display: none; }
       .execution-card { position: relative; z-index: 0; border: 1px solid #3d3940; border-left: 2px solid #7666a6; border-radius: 7px; background: #1b191cb8; padding: 7px 10px; font-size: 10px; }
       .execution-card header { display: flex; align-items: center; gap: 6px; color: #bdb7c1; font-weight: 600; line-height: 1.35; }
       .execution-card header strong { color: #d9d4da; font-weight: 650; }
@@ -145,6 +146,7 @@
       .execution-card .dialog-actions { margin-top: 9px; }
       .execution-card button { font-size: 11px; }
       .execution-state { margin-left: auto; border: 1px solid #4a454e; border-radius: 999px; padding: 1px 5px; color: var(--muted); text-transform: capitalize; }
+      @media (max-width: 700px) { .execution-list { margin-left: 0; width: 100%; } }
     </style>
   </head>
   <body>
