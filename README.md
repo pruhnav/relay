@@ -11,24 +11,32 @@ Relay gives each person a private AI chat while making approved organizational k
 - **Admin-managed capabilities:** an administrator can make prompts, reference documents, skills, HTTP functions, and remote MCP servers available to everyone in the organization.
 - **Governed external calls:** tool activity is recorded with the conversation it belongs to. MCP calls can require the conversation owner’s approval.
 
-## Launch the app
+## Hackathon quick start
 
-Relay runs entirely in Docker.
+### Prerequisites
 
-1. Create the local environment file if it does not exist:
+- Docker Desktop (or Docker Engine with the Compose plugin)
+- An OpenAI API key for the complete live demo
+
+No GitHub, Context7, or DeepWiki API key is needed for the preconfigured demo capabilities. The OpenAI key is the only key judges need to supply for live chat responses and live tool/MCP calls.
+
+### Run locally
+
+Relay runs entirely in Docker. From a fresh clone:
+
+1. Create your private environment file from the tracked template:
 
    ```sh
-   touch .env
+   cp .env.example .env
    ```
 
-2. For live AI responses and external tool/MCP use, add an OpenAI API key to `.env`:
+2. Edit `.env` and replace the placeholder:
 
    ```dotenv
-   OPENAI_API_KEY=your_key_here
-   # Optional: OPENAI_MODEL=gpt-5
+   OPENAI_API_KEY=your_openai_api_key
    ```
 
-   Without an API key, Relay still runs in demo mode. Shared-memory browsing and configuration screens remain available, but it cannot make live model, HTTP-tool, or MCP calls.
+   `.env` is intentionally ignored by Git and must not be committed.
 
 3. Build and start the development service:
 
@@ -39,6 +47,17 @@ Relay runs entirely in Docker.
 4. Open [http://localhost:8000](http://localhost:8000).
 
 The service is named `dev`, bind-mounts this project at `/workspace`, and publishes port `8000`.
+
+### Keys and environment variables
+
+| Variable | Needed for | Required? |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | Live Relay responses and live HTTP/MCP capability calls | Yes for the full hackathon demo |
+| `OPENAI_MODEL` | Override the default `gpt-5` model | No |
+| `RELAY_TOOL_HEADER_ENV_ALLOWLIST` and the referenced key variables | A custom administrator-created HTTP tool that requires an API-key header | No |
+| `RELAY_COOKIE_SECURE=true` | An HTTPS deployment | No; leave unset locally |
+
+If no `OPENAI_API_KEY` is provided, Relay starts in **demo mode**. Judges can still sign in, browse shared memory, inspect the admin configuration, and explore the UI, but Relay cannot produce live model responses or call external tools/MCP servers.
 
 Useful commands:
 
