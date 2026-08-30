@@ -17,6 +17,7 @@ from typing import Any, Literal
 import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,7 @@ except ImportError:  # Keep the demo usable if the optional provider is unavaila
     OpenAI = None  # type: ignore[assignment,misc]
 
 from .database import connect, initialize, row_dict, verify_password
+from .runloop_service import RunloopConfigurationError, RunloopServiceError, run_runloop_smoke_test
 
 
 SharedContextType = Literal["chat", "artifact"]
@@ -1067,6 +1069,17 @@ def startup() -> None:
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "time": now(), "agent_mode": agent_mode()}
+
+
+@app.post("/api/runloop/test")
+async def runloop_test(identity: dict = Depends(current_identity)):
+    """Run an authenticated, isolated Runloop connectivity probe."""
+    try:
+        return await run_runloop_smoke_test()
+    except RunloopConfigurationError as error:
+        return JSONResponse(status_code=503, content={"success": False, "error": str(error)})
+    except RunloopServiceError as error:
+        return JSONResponse(status_code=502, content={"success": False, "error": str(error)})
 
 
 @app.post("/api/auth/login")
