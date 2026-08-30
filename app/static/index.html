@@ -134,13 +134,17 @@
       .message-list { min-height: 0 !important; width: 100%; }
       .message > div { min-width: 0; }
       .message-body { display: block; max-width: 100%; overflow: visible; overflow-wrap: anywhere; word-break: break-word; }
-      .execution-list { position: static; display: grid; flex: 0 0 auto; gap: 8px; max-width: 780px; margin: 0 auto 6px; width: 100%; isolation: isolate; }
-      .execution-card { position: static; z-index: auto; border: 1px solid #46404a; border-left: 3px solid var(--violet); border-radius: 8px; background: #211e22; padding: 10px 12px; font-size: 11px; }
-      .execution-card header { display: flex; align-items: center; gap: 7px; color: #d8d4d8; font-weight: 650; }
-      .execution-card p { color: var(--muted); margin: 5px 0 0; line-height: 1.45; white-space: pre-wrap; }
+      .execution-list { position: relative; clear: both; display: grid; flex: 0 0 auto; gap: 5px; max-width: 780px; margin: 4px auto 12px; width: 100%; isolation: isolate; }
+      .execution-card { position: relative; z-index: 0; border: 1px solid #3d3940; border-left: 2px solid #7666a6; border-radius: 7px; background: #1b191cb8; padding: 7px 10px; font-size: 10px; }
+      .execution-card header { display: flex; align-items: center; gap: 6px; color: #bdb7c1; font-weight: 600; line-height: 1.35; }
+      .execution-card header strong { color: #d9d4da; font-weight: 650; }
+      .execution-card details { margin-top: 3px; }
+      .execution-card summary { color: #8e8791; cursor: pointer; font-size: 10px; list-style-position: outside; }
+      .execution-card summary:hover { color: #c4bec5; }
+      .execution-card p { color: var(--muted); margin: 6px 0 0; line-height: 1.45; white-space: pre-wrap; }
       .execution-card .dialog-actions { margin-top: 9px; }
       .execution-card button { font-size: 11px; }
-      .execution-state { margin-left: auto; border: 1px solid #4a454e; border-radius: 999px; padding: 2px 6px; color: var(--muted); text-transform: capitalize; }
+      .execution-state { margin-left: auto; border: 1px solid #4a454e; border-radius: 999px; padding: 1px 5px; color: var(--muted); text-transform: capitalize; }
     </style>
   </head>
   <body>

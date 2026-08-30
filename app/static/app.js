@@ -239,7 +239,8 @@
       try {
       const stateLabel = esc((execution.state || 'requested').replace('_', ' ')); const detail = execution.error || execution.result || (execution.state === 'awaiting_approval' ? 'Relay is waiting for your approval before this external call.' : 'Relay recorded this capability call.');
       const approval = execution.state === 'awaiting_approval' ? `<div class="dialog-actions"><button class="cancel-button" type="button" data-execution-approval="false" data-execution-id="${esc(execution.id)}">Reject</button><button class="submit-share" type="button" data-execution-approval="true" data-execution-id="${esc(execution.id)}">Approve and continue</button></div>` : '';
-      return `<article class="execution-card"><header><span>${esc(execution.capability_type === 'mcp' ? 'MCP' : 'HTTP tool')}</span><strong>${esc(execution.tool_name)}</strong><span class="execution-state ${esc(execution.state)}">${stateLabel}</span></header><p>${esc(readableExecutionResult(detail))}</p>${approval}</article>`;
+      const summary = execution.error ? 'View error details' : execution.state === 'awaiting_approval' ? 'Review request details' : 'View result';
+      return `<article class="execution-card"><header><span>${esc(execution.capability_type === 'mcp' ? 'MCP' : 'HTTP tool')}</span><strong>${esc(execution.tool_name)}</strong><span class="execution-state ${esc(execution.state)}">${stateLabel}</span></header><details><summary>${summary}</summary><p>${esc(readableExecutionResult(detail))}</p></details>${approval}</article>`;
       } catch { return '<article class="execution-card"><header><span>Capability activity</span><span class="execution-state">recorded</span></header><p>The response is available, but this activity detail could not be displayed.</p></article>'; }
     }).join('') : '';
   }
