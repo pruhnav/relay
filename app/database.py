@@ -192,7 +192,13 @@ def initialize() -> None:
                 source_user_id TEXT REFERENCES users(id),
                 artifact_type TEXT,
                 source_record_ids_json TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                context_type TEXT,
+                title TEXT,
+                status TEXT,
+                source_type TEXT,
+                source_reference TEXT,
+                updated_at TEXT
             );
             CREATE TABLE IF NOT EXISTS user_sessions (
                 team_id TEXT NOT NULL REFERENCES teams(id),
@@ -359,6 +365,14 @@ def initialize() -> None:
                WHERE last_activity_at IS NULL"""
         )
         db.execute("CREATE INDEX IF NOT EXISTS conversations_owner_activity ON conversations(team_id, user_id, last_activity_at DESC, id DESC)")
+
+        # Structured team-memory metadata is optional so the canonical chat/artifact fixtures and
+        # API remain backward compatible while new manual and event-driven records gain lifecycle
+        # and provenance fields.
+        context_columns = {row[1] for row in db.execute("PRAGMA table_info(shared_context_records)")}
+        for column in ("context_type", "title", "status", "source_type", "source_reference", "updated_at"):
+            if column not in context_columns:
+                db.execute(f"ALTER TABLE shared_context_records ADD COLUMN {column} TEXT")
 
         # Earlier admin builds keyed documents by filename, which prevented multiple SKILL.md
         # bundles. Preserve their rows while upgrading to the current title-based uniqueness.

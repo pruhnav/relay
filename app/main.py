@@ -29,7 +29,11 @@ from .database import connect, initialize, row_dict, verify_password
 
 
 SharedContextType = Literal["chat", "artifact"]
+TeamContextType = Literal["feature", "decision", "task", "research", "note", "fact", "opinion", "proposal"]
+TeamContextStatus = Literal["in_progress", "complete", "blocked", "active", "confirmed", "superseded"]
 ConfigurationEntryKind = Literal["tool", "mcp_server", "skill", "markdown", "prompt_template"]
+VALID_CONTEXT_TYPES = {"feature", "decision", "task", "research", "note", "fact", "opinion", "proposal"}
+VALID_CONTEXT_STATUSES = {"in_progress", "complete", "blocked", "active", "confirmed", "superseded"}
 TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 SYNONYMS = {
     "login": {"authentication", "auth", "oauth", "google"},
@@ -62,9 +66,12 @@ SAFE_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 
 AGENT_INSTRUCTIONS = """You are Relay, a research assistant for a consulting team.
 This is a private chat: never state or imply that its messages were shared with the team.
+Use shared team context when responding. If work is already complete or in progress, tell the user
+instead of suggesting duplicate work. Distinguish between facts, decisions, proposals, and opinions.
+Do not treat conflicting context as automatically resolved.
 The supplied shared-context records are verified team context. Each record is either a chat excerpt
-or an artifact. Infer work status, blockers, dependencies, and decisions from the content at
-retrieval time rather than assuming a stored status field.
+or an artifact. Honor structured type and status metadata when present; for legacy records without
+metadata, infer work status, blockers, dependencies, and decisions cautiously from the content.
 
 When records are relevant, identify the contributor, preserve provenance, and reuse completed work
 rather than proposing that the user repeat it. Surface handoff and documentation artifacts directly.
@@ -279,6 +286,53 @@ def record_from_row(row) -> dict:
     return record
 
 
+def save_team_context(
+    db,
+    *,
+    team_id: str,
+    author_id: str | None,
+    context_type: str,
+    title: str,
+    content: str,
+    status: str,
+    source_type: str,
+    source_reference: str,
+    record_type: SharedContextType = "artifact",
+    artifact_type: str | None = None,
+    source_record_ids: list[str] | None = None,
+    context_id: str | None = None,
+    timestamp: str | None = None,
+) -> dict:
+    """Store an intentional team-memory record; future Runloop adapters call this boundary."""
+    if context_type not in VALID_CONTEXT_TYPES:
+        raise ValueError("Invalid team context type.")
+    if status not in VALID_CONTEXT_STATUSES:
+        raise ValueError("Invalid team context status.")
+    if status == "confirmed" and context_type != "decision":
+        raise ValueError("Only decisions may be confirmed.")
+    created = timestamp or now()
+    record = {
+        "id": context_id or identifier("record"), "team_id": team_id, "type": record_type,
+        "content": content.strip(), "source_user_id": author_id,
+        "artifact_type": artifact_type or (context_type if record_type == "artifact" else None),
+        "source_record_ids": source_record_ids or [], "created_at": created,
+        "context_type": context_type, "title": title.strip(), "status": status,
+        "source_type": source_type, "source_reference": source_reference, "updated_at": created,
+    }
+    db.execute(
+        """INSERT INTO shared_context_records
+           (id, team_id, type, content, source_user_id, artifact_type, source_record_ids_json,
+            created_at, context_type, title, status, source_type, source_reference, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (record["id"], team_id, record_type, record["content"], author_id, record["artifact_type"],
+         json.dumps(record["source_record_ids"]), created, context_type, record["title"], status,
+         source_type, source_reference, created),
+    )
+    user = db.execute("SELECT name FROM users WHERE id = ? AND team_id = ?", (author_id, team_id)).fetchone()
+    record["source_user_name"] = user["name"] if user else None
+    return record
+
+
 def event_from_row(row) -> dict:
     return dict(row)
 
@@ -300,8 +354,9 @@ def find_matches(db, team_id: str, query: str) -> list[dict]:
     for row in candidates:
         record = record_from_row(row)
         content_terms = tokens(record["content"])
-        score = len(requested & content_terms)
-        if record["type"] == "artifact":
+        title_terms = tokens(record.get("title") or "")
+        score = len(requested & content_terms) + 4 * len(requested & title_terms)
+        if record["type"] == "artifact" and score:
             score += 2
             if record.get("artifact_type") in {"handoff", "documentation"}:
                 score += 2
@@ -310,6 +365,14 @@ def find_matches(db, team_id: str, query: str) -> list[dict]:
         if score >= 2:
             scored.append((score, record))
     return [record for _, record in sorted(scored, key=lambda pair: (pair[0], pair[1]["created_at"]), reverse=True)[:6]]
+
+
+def search_team_context(team_id: str, query: str, db=None) -> list[dict]:
+    """Search keyword-ranked context scoped strictly to one team."""
+    if db is not None:
+        return find_matches(db, team_id, query)
+    with connect() as connection:
+        return find_matches(connection, team_id, query)
 
 
 def related_records(db, matches: list[dict]) -> list[dict]:
@@ -343,6 +406,14 @@ def duplicate_response(matches: list[dict], related: list[dict]) -> str:
         return (
             f"I found a team conflict record: {preview} Review the linked source messages before proceeding."
         )
+    if primary.get("status") in {"in_progress", "complete", "blocked"}:
+        status = primary["status"].replace("_", " ")
+        next_step = (
+            "Reuse the completed work instead of repeating it."
+            if primary["status"] == "complete"
+            else "Coordinate with the owner before starting overlapping work."
+        )
+        return f"{contributor} owns “{primary.get('title') or preview}” and it is {status}. {next_step}"
     related_note = ""
     if related:
         related_note = f" Related context from {related[0].get('source_user_name') or 'the team'} is also available."
@@ -402,6 +473,11 @@ def team_context_for_agent(matches: list[dict], related: list[dict]) -> dict:
             "type": record["type"],
             "content": truncate_text(record["content"], 1_800),
             "artifact_type": record.get("artifact_type"),
+            "context_type": record.get("context_type"),
+            "title": record.get("title"),
+            "status": record.get("status"),
+            "source_type": record.get("source_type"),
+            "source_reference": record.get("source_reference"),
             "source_user_name": record.get("source_user_name"),
             "source_record_ids": bounded_strings(record.get("source_record_ids", []), maximum_items=10, maximum_chars=40),
             "created_at": record["created_at"],
@@ -419,6 +495,17 @@ def team_context_for_agent(matches: list[dict], related: list[dict]) -> dict:
             "note": "Record bodies were omitted from the agent prompt for size; use ids and provenance as pointers.",
         }
     return context
+
+
+def build_team_context_for_prompt(team_id: str, user_message: str, db=None, matches=None, related=None) -> dict:
+    """Build bounded shared context for the current user message before provider invocation."""
+    if db is not None:
+        selected = matches if matches is not None else search_team_context(team_id, user_message, db)
+        linked = related if related is not None else related_records(db, selected)
+        return team_context_for_agent(selected, linked)
+    with connect() as connection:
+        selected = search_team_context(team_id, user_message, connection)
+        return team_context_for_agent(selected, related_records(connection, selected))
 
 
 def configuration_entry_from_row(row) -> dict:
@@ -855,7 +942,7 @@ def github_issue_final_answer(executions: list[dict]) -> str | None:
     return None
 
 
-def live_agent_response(conversation: list[dict[str, str]], matches: list[dict], related: list[dict], configuration: dict,
+def live_agent_response(conversation: list[dict[str, str]], prompt_team_context: dict, configuration: dict,
                         capabilities: dict[str, list[dict]], turn: dict, db) -> tuple[str | None, list[dict], dict | None]:
     """Run a bounded Responses function/MCP loop, returning content, audit records, or approval state."""
     if agent_mode() != "live": return None, [], None
@@ -864,7 +951,7 @@ def live_agent_response(conversation: list[dict[str, str]], matches: list[dict],
     try:
         resolved_instructions = agent_instructions_for_team(configuration, capabilities)
         response = client.responses.create(model=os.getenv("OPENAI_MODEL", "gpt-5").strip() or "gpt-5", instructions=resolved_instructions,
-            tools=provider_tools(capabilities), input=("Private conversation history (latest bounded messages):\n" + json.dumps(conversation, ensure_ascii=False) + "\n\nVerified shared team context retrieved for the latest request:\n" + json.dumps(team_context_for_agent(matches, related), ensure_ascii=False)), max_output_tokens=MAX_PROVIDER_OUTPUT_TOKENS)
+            tools=provider_tools(capabilities), input=("Private conversation history (latest bounded messages):\n" + json.dumps(conversation, ensure_ascii=False) + "\n\nVerified shared team context retrieved for the latest request:\n" + json.dumps(prompt_team_context, ensure_ascii=False)), max_output_tokens=MAX_PROVIDER_OUTPUT_TOKENS)
         functions = {item["name"]: item for item in capabilities["function_tools"] if item["enabled"]}
         mcp_servers = {item["label"]: item for item in capabilities["mcp_servers"] if item["enabled"]}
         for _ in range(MAX_EXTERNAL_CALLS):
@@ -1574,8 +1661,11 @@ def post_message(conversation_id: str, payload: MessageInput, identity: dict = D
         # Commit this recency boundary before contacting a potentially slow provider. A pending
         # approval therefore still moves the user's private conversation to the top of the rail.
         db.execute("UPDATE conversations SET last_activity_at = ? WHERE id = ?", (created, conversation_id))
-        matches = find_matches(db, conversation["team_id"], payload.content)
+        matches = search_team_context(conversation["team_id"], payload.content, db)
         related = related_records(db, matches)
+        prompt_team_context = build_team_context_for_prompt(
+            conversation["team_id"], payload.content, db=db, matches=matches, related=related
+        )
         private_history = recent_private_history(db, conversation_id)
         # This read occurs for every request, after authorization and before provider invocation.
         # It is the propagation boundary: no cached or browser-provided agent configuration can
@@ -1592,7 +1682,9 @@ def post_message(conversation_id: str, payload: MessageInput, identity: dict = D
         # cannot hold the SQLite transaction open. Retrieval above remains authoritative and occurs
         # before the model is called.
         db.commit()
-        generated_content, executions, approval_state = live_agent_response(private_history, matches, related, configuration, typed_capabilities, turn, db)
+        generated_content, executions, approval_state = live_agent_response(
+            private_history, prompt_team_context, configuration, typed_capabilities, turn, db
+        )
         if approval_state:
             db.execute("UPDATE agent_turns SET state = ?, provider_state_json = ?, updated_at = ? WHERE id = ?", ("awaiting_approval", json.dumps(approval_state), now(), turn["id"]))
             db.commit()
@@ -1649,26 +1741,14 @@ def create_context(payload: SharedContextInput, identity: dict = Depends(current
     if payload.type == "chat" and payload.artifact_type:
         raise HTTPException(400, "artifact_type is only valid for artifact records.")
     timestamp = now()
-    record = {
-        "id": identifier("record"),
-        "team_id": identity["team"]["id"],
-        "type": payload.type,
-        "content": content,
-        "source_user_id": identity["user"]["id"],
-        "artifact_type": payload.artifact_type if payload.type == "artifact" else None,
-        "source_record_ids": payload.source_record_ids,
-        "source_user_name": identity["user"]["name"],
-        "created_at": timestamp,
-    }
     with connect() as db:
-        db.execute(
-            """INSERT INTO shared_context_records
-               (id, team_id, type, content, source_user_id, artifact_type, source_record_ids_json, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                record["id"], record["team_id"], record["type"], record["content"], record["source_user_id"],
-                record["artifact_type"], json.dumps(record["source_record_ids"]), record["created_at"],
-            ),
+        inferred_type = payload.artifact_type if payload.artifact_type in VALID_CONTEXT_TYPES else "note"
+        record = save_team_context(
+            db, team_id=identity["team"]["id"], author_id=identity["user"]["id"],
+            context_type=inferred_type, title=content.splitlines()[0][:240], content=content,
+            status="active", source_type="manual", source_reference="Share with Team",
+            record_type=payload.type, artifact_type=payload.artifact_type,
+            source_record_ids=payload.source_record_ids, timestamp=timestamp,
         )
         preview = content[:120].rstrip() + ("…" if len(content) > 120 else "")
         event = create_event(
