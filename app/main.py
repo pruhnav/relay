@@ -117,6 +117,10 @@ class SharedContextInput(BaseModel):
     source_record_ids: list[str] = Field(default_factory=list)
 
 
+class SupersedeContextInput(BaseModel):
+    superseded_by_record_id: str = Field(min_length=1)
+
+
 class AgentConfigurationInput(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=12000)
     expected_revision: int | None = Field(default=None, ge=1)
@@ -349,6 +353,7 @@ def find_matches(db, team_id: str, query: str) -> list[dict]:
            FROM shared_context_records r
            LEFT JOIN users u ON u.id = r.source_user_id
            WHERE r.team_id = ?
+             AND (r.status IS NULL OR r.status <> 'superseded')
            ORDER BY r.created_at DESC""",
         (team_id,),
     ).fetchall()
@@ -392,7 +397,8 @@ def related_records(db, matches: list[dict]) -> list[dict]:
         f"""SELECT r.*, u.name AS source_user_name
             FROM shared_context_records r
             LEFT JOIN users u ON u.id = r.source_user_id
-            WHERE r.id IN ({markers})""",
+            WHERE r.id IN ({markers})
+              AND (r.status IS NULL OR r.status <> 'superseded')""",
         tuple(related_ids),
     )
     return [record_from_row(row) for row in rows]
@@ -485,6 +491,7 @@ def team_context_for_agent(matches: list[dict], related: list[dict]) -> dict:
             "created_at": record["created_at"],
         }
         for record in [*matches, *related]
+        if record.get("status") != "superseded"
     ]
     context = {"matched_shared_context_records": records}
     serialized = json.dumps(context, ensure_ascii=False)
@@ -1771,6 +1778,35 @@ def create_context(payload: SharedContextInput, identity: dict = Depends(current
         )
         db.commit()
     return {"record": record, "event": event}
+
+
+@app.post("/api/context/{record_id}/supersede")
+def supersede_context(record_id: str, payload: SupersedeContextInput, identity: dict = Depends(current_identity)) -> dict:
+    replacement_id = payload.superseded_by_record_id
+    if record_id == replacement_id:
+        raise HTTPException(400, "A record cannot supersede itself.")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        for candidate_id in (record_id, replacement_id):
+            if not db.execute(
+                "SELECT id FROM shared_context_records WHERE id = ? AND team_id = ?",
+                (candidate_id, identity["team"]["id"]),
+            ).fetchone():
+                raise HTTPException(404, "Shared context record not found.")
+        db.execute(
+            """UPDATE shared_context_records
+               SET status = 'superseded', superseded_by_record_id = ?, updated_at = ?
+               WHERE id = ? AND team_id = ?""",
+            (replacement_id, now(), record_id, identity["team"]["id"]),
+        )
+        row = db.execute(
+            """SELECT r.*, u.name AS source_user_name FROM shared_context_records r
+               LEFT JOIN users u ON u.id = r.source_user_id WHERE r.id = ?""",
+            (record_id,),
+        ).fetchone()
+        record = record_from_row(row)
+        db.commit()
+    return {"record": record}
 
 
 @app.get("/api/context/{record_id}")

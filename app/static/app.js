@@ -327,7 +327,7 @@
       const matchesFilter = filter === 'all' || (filter === 'chat' && record.type === 'chat') || (filter === 'artifact' && record.type === 'artifact') || (filter === 'conflict' && record.artifact_type === 'conflict');
       return matchesFilter && `${record.content} ${record.source_user_name || ''} ${record.artifact_type || ''}`.toLowerCase().includes(query);
     });
-    $('memory-list').innerHTML = visible.length ? visible.map((record) => `<article class="memory-card" data-status="${esc(record.type)}"><div class="memory-top"><span class="type-dot"></span>${esc(record.type)}${record.artifact_type ? ` · ${esc(record.artifact_type)}` : ''}</div><p>${esc(record.content)}</p><footer>${esc(record.source_user_name || 'System')} · ${time(record.created_at)}</footer></article>`).join('') : '<p class="empty-state">No shared work matches this view.</p>';
+    $('memory-list').innerHTML = visible.length ? visible.map((record) => `<article class="memory-card" data-status="${esc(record.status || '')}"><div class="memory-top"><span class="type-dot"></span>${esc(record.type)}${record.artifact_type ? ` · ${esc(record.artifact_type)}` : ''}${record.status === 'superseded' ? '<span class="superseded-badge">Superseded</span>' : ''}</div><p>${esc(record.content)}</p><footer>${esc(record.source_user_name || 'System')} · ${time(record.created_at)}</footer>${record.superseded_by_record_id ? `<button type="button" class="artifact-link" data-record="${esc(record.superseded_by_record_id)}">View replacement</button>` : ''}</article>`).join('') : '<p class="empty-state">No shared work matches this view.</p>';
   }
   function pending() { messageList().insertAdjacentHTML('beforeend', '<article class="message pending" id="request-pending"><span class="avatar assistant-avatar">r</span><div><div class="message-meta">Relay</div><div class="message-body"><span class="dots"><i></i><i></i><i></i></span> Checking team memory and preparing a response…</div></div></article>'); scrollMessages(); }
   async function createConversation() {
@@ -374,7 +374,7 @@
     catch { if (state.user) $('poll-status').textContent = 'Team updates will retry soon'; }
   }
   async function openRecord(id) {
-    try { const record = (await api(`/context/${encodeURIComponent(id)}`)).record; notice(`${record.type}${record.artifact_type ? ` (${record.artifact_type})` : ''}: ${record.content}`); }
+    try { const record = (await api(`/context/${encodeURIComponent(id)}`)).record; notice(`${record.type}${record.artifact_type ? ` (${record.artifact_type})` : ''}${record.status === 'superseded' ? ' · Superseded' : ''}: ${record.content}`); }
     catch (error) { if (state.user) notice(`Could not open record: ${error.message}`); }
   }
   async function mountAuthenticated(identity) {
@@ -410,6 +410,7 @@
   $('messages').onscroll = () => { if ($('messages').scrollTop <= 80) loadOlderMessages(); };
   $('history-control').onclick = (event) => { if (event.target.closest('[data-load-older]')) loadOlderMessages(); };
   $('context-search').oninput = renderContext;
+  $('memory-list').onclick = (event) => { const record = event.target.closest('[data-record]'); if (record) openRecord(record.dataset.record); };
   $('hub-filters').onclick = (event) => { const button = event.target.closest('.filter'); if (button) { $('hub-filters').querySelectorAll('.filter').forEach((filter) => filter.classList.toggle('active', filter === button)); renderContext(); } };
   $('refresh-button').onclick = () => Promise.all([loadContext(), pollActivity()]); $('open-share').onclick = openShare; $('nudge-share').onclick = openShare; $('close-share').onclick = () => $('share-dialog').close(); $('cancel-share').onclick = () => $('share-dialog').close(); $('share-form').onsubmit = share; $('catchup-dismiss').onclick = () => { $('catchup-banner').hidden = true; };
   $('open-admin').onclick = openAdmin; $('close-admin').onclick = () => $('admin-dialog').close(); $('save-system-prompt').onclick = saveSystemPrompt; $('new-config-entry').onclick = () => openEntry(); $('close-entry').onclick = () => $('entry-dialog').close(); $('cancel-entry').onclick = () => $('entry-dialog').close(); $('entry-form').onsubmit = saveEntry; $('entry-kind').onchange = () => setEntryKind($('entry-kind').value); $('config-entry-list').onclick = configEntryAction;
