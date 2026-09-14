@@ -196,6 +196,7 @@ def initialize() -> None:
                 context_type TEXT,
                 title TEXT,
                 status TEXT,
+                superseded_by_record_id TEXT REFERENCES shared_context_records(id),
                 source_type TEXT,
                 source_reference TEXT,
                 updated_at TEXT
@@ -373,6 +374,8 @@ def initialize() -> None:
         for column in ("context_type", "title", "status", "source_type", "source_reference", "updated_at"):
             if column not in context_columns:
                 db.execute(f"ALTER TABLE shared_context_records ADD COLUMN {column} TEXT")
+        if "superseded_by_record_id" not in context_columns:
+            db.execute("ALTER TABLE shared_context_records ADD COLUMN superseded_by_record_id TEXT REFERENCES shared_context_records(id)")
 
         # Earlier admin builds keyed documents by filename, which prevented multiple SKILL.md
         # bundles. Preserve their rows while upgrading to the current title-based uniqueness.
