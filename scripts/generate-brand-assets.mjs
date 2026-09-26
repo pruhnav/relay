@@ -56,7 +56,9 @@ const demo = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="200" 
     <text x="969" y="108" font-size="22" font-weight="700" fill="#273000">Watch demo</text>
   </g>
 </svg>`;
-// Render this page at 1280x640 using a browser screenshot for the upload PNG.
+// Export these pages with Chromium's --default-background-color=00000000
+// and --force-device-scale-factor=1 so rounded corners remain transparent.
+// Use --window-size=1200,160 for banner, 1200,200 for demo, 1280,640 for social.
 fs.mkdirSync('tmp/brand-preview',{recursive:true});
 fs.writeFileSync('tmp/brand-preview/social.html',`<!doctype html><style>html,body{margin:0;width:1280px;height:640px;overflow:hidden}svg{display:block}</style>${social}`);
 fs.writeFileSync('tmp/brand-preview/banner.html',`<!doctype html><style>html,body{margin:0;width:1200px;height:160px;overflow:hidden}svg{display:block}</style>${banner}`);
