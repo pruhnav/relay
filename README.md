@@ -4,6 +4,12 @@
 
 Relay gives each person a private AI chat while making approved organizational knowledge and tools available across the team. It is designed for consulting and research teams that want to reuse completed work, avoid duplicate effort, and provide a consistent set of AI capabilities without requiring every user to manage technical integrations.
 
+## Demo
+
+[![See Relay in action — Watch demo on YouTube](app/static/images/relay-demo-banner.png)](https://www.youtube.com/watch?v=V1DuZxLtMfQ)
+
+[Watch the Relay demo on YouTube](https://www.youtube.com/watch?v=V1DuZxLtMfQ).
+
 ## What it demonstrates
 
 - **Private conversations:** each person sees only their own conversations.
