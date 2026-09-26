@@ -1,14 +1,6 @@
-# Relay — shared team AI workspace
-
 ![Relay — Shared memory. Standardized tools.](app/static/images/relay-readme-banner.png)
 
 Relay gives each person a private AI chat while making approved organizational knowledge and tools available across the team. It is designed for consulting and research teams that want to reuse completed work, avoid duplicate effort, and provide a consistent set of AI capabilities without requiring every user to manage technical integrations.
-
-## Demo
-
-[![See Relay in action — Watch demo on YouTube](app/static/images/relay-demo-banner.png)](https://www.youtube.com/watch?v=V1DuZxLtMfQ)
-
-[Watch the Relay demo on YouTube](https://www.youtube.com/watch?v=V1DuZxLtMfQ).
 
 ## What it demonstrates
 
@@ -146,3 +138,9 @@ Dockerfile              Development image and Python dependencies
 ## Data behavior
 
 SQLite data is stored at `app/team_memory.db` and is bind-mounted with the project. The canonical records from `app/data/data.json` are loaded only when shared memory is empty, so normal restarts preserve conversations, published work, and administrator configuration.
+
+## Demo
+
+[![See Relay in action — Watch demo on YouTube](app/static/images/relay-demo-banner.png)](https://www.youtube.com/watch?v=V1DuZxLtMfQ)
+
+[Watch the Relay demo on YouTube](https://www.youtube.com/watch?v=V1DuZxLtMfQ).
